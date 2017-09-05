@@ -1,0 +1,10 @@
+artifacts
+bin
+obj
+_Resharper*
+*.user
+*.build.csdef
+*.suo
+csx
+Thumbs.db
+azure_connection.txt
