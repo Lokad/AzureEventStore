@@ -8,8 +8,14 @@
     <Copyright>Copyright © Lokad 2017</Copyright>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
-    <PackageId>AzureEventStore.Core</PackageId>
+    <PackageId>Lokad.AzureEventStore</PackageId>
     <PackageVersion>1.0.0.0</PackageVersion>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <Authors>Lokad</Authors>
+    <Description>Simple, low-maintenance event sourcing backed by Azure Blob Storage.</Description>
+    <PackageLicenseUrl>https://github.com/Lokad/AzureEventStore/blob/master/LICENSE.txt</PackageLicenseUrl>
+    <PackageProjectUrl>https://github.com/Lokad/AzureEventStore</PackageProjectUrl>
+    <PackageIconUrl>https://raw.githubusercontent.com/Lokad/AzureEventStore/master/lokad.png</PackageIconUrl>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)'=='netstandard1.6'">
     <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
