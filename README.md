@@ -177,6 +177,11 @@ The following fields must be implemented:
    same event more than once, or with events that do not even appear in the 
    event stream, or skip certain events entirely.
    
+   It is however guaranteed that the `State` passed to function `Apply` on a 
+   given sequence number will be the result of calling `Apply` on the previous
+   sequence number (that is, the `State` is build by applying events in 
+   chronological order, starting with `Initial`).
+   
    In a real-life project, this function would be implemented with a visitor
    pattern, but in the example project it is simply:
 
