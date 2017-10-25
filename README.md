@@ -17,6 +17,8 @@ Lokad.AzureEventStore will fit your project comfortably if:
  - Each aggregate receives less than 10 events per second.
  - The materialized views for all your aggregates fit in memory.
 
+NuGet package: [Lokad.AzureEventStore](https://www.nuget.org/packages/Lokad.AzureEventStore/).
+
 What you get out of Lokad.AzureEventStore:
 
  - **Robust data storage**: your events are written to [Azure Append Blobs](https://docs.microsoft.com/en-us/rest/api/storageservices/understanding-block-blobs--append-blobs--and-page-blobs#about-append-blobs),
