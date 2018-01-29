@@ -2,3 +2,4 @@
 
 [assembly: InternalsVisibleTo("Lokad.AzureEventStore.Test")]
 [assembly: InternalsVisibleTo("Lokad.AzureEventStore.Tool")]
+[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
