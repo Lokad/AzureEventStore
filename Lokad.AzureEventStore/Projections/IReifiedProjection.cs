@@ -4,10 +4,10 @@ using System.Threading.Tasks;
 namespace Lokad.AzureEventStore.Projections
 {
     /// <summary>
-    /// A <see cref="ReifiedProjection{T,T}"/> with the type of the state
-    /// abstracted away.
+    /// A <see cref="IReifiedProjection{T}"/> with the type of the events
+    /// abstracted away
     /// </summary>
-    internal interface IReifiedProjection<in TEvent>
+    internal interface IReifiedProjection
     {
         /// <summary> Attempt to save this projection to the destination stream. </summary>
         /// <remarks>
@@ -29,10 +29,6 @@ namespace Lokad.AzureEventStore.Projections
         /// </summary>
         void SetPossiblyInconsistent();
 
-        /// <summary> Apply the specified event to the state. </summary>
-        /// <remarks> The sequence number must be greater than <see cref="Sequence"/>. </remarks>
-        void Apply(uint seq, TEvent e);
-
         /// <summary> Reset the projection to its initial state and sequence number <c>0</c>. </summary>
         void Reset();
 
@@ -41,6 +37,17 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> The name of the underlying projection. </summary>
         string Name { get; }
+    }
+
+    /// <summary>
+    /// A <see cref="ReifiedProjection{T,T}"/> with the type of the state
+    /// abstracted away
+    /// </summary>
+    internal interface IReifiedProjection<in TEvent> : IReifiedProjection
+    {
+        /// <summary> Apply the specified event to the state. </summary>
+        /// <remarks> The sequence number must be greater than <see cref="Sequence"/>. </remarks>
+        void Apply(uint seq, TEvent e);
     }
 
     internal interface IReifiedProjection<in TEvent, out TState> : IReifiedProjection<TEvent>

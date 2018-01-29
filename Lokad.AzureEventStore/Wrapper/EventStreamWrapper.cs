@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
@@ -62,52 +61,85 @@ namespace Lokad.AzureEventStore.Wrapper
         // the case of deserialization errors.
         public uint Sequence => Stream.Sequence;
 
+        private class InitFacade : IInitFacade
+        {
+            private readonly EventStreamWrapper<TEvent, TState> _wrapper;
+            private readonly Lazy<Task<IReifiedProjection>> _projection;
+            private readonly CancellationToken _cancel;
+
+            public InitFacade(EventStreamWrapper<TEvent, TState> wrapper, CancellationToken cancel)
+            {
+                _wrapper = wrapper;
+                _cancel = cancel;
+                _projection = new Lazy<Task<IReifiedProjection>>( LoadProjection, LazyThreadSafetyMode.ExecutionAndPublication );
+            }
+
+            private async Task<IReifiedProjection> LoadProjection()
+            {
+                await _wrapper._projection.TryLoadAsync(_cancel).ConfigureAwait(false);
+                return _wrapper._projection;
+            }
+
+            public Task<IReifiedProjection> Projection => _projection.Value;
+
+            public async Task<uint> DiscardStreamUpTo(uint catchUpSeq)
+                => await _wrapper.Stream.DiscardUpTo(catchUpSeq, _cancel).ConfigureAwait(false);
+
+            public void Reset()
+            {
+                _wrapper.Stream.Reset();
+                _wrapper._projection.Reset();
+            }
+        }
+
+        internal static async Task Initialize(IInitFacade facade, ILogAdapter log = null)
+        {
+            try
+            {
+                // Load project and discard events before that.
+                log?.Info("[ES init] loading projections.");
+
+                var projection = await facade.Projection.ConfigureAwait(false);
+
+                var catchUp = projection.Sequence + 1;
+
+                log?.Info($"[ES init] advancing stream to seq {catchUp}.");
+                var streamSequence = await facade.DiscardStreamUpTo(catchUp).ConfigureAwait(false);
+
+                if (streamSequence < catchUp)
+                {
+                    log?.Warning(
+                        $"[ES init] invalid seq {catchUp} > {streamSequence}, resetting everything.");
+
+                    // Cache is apparently beyond the available sequence. Could happen in 
+                    // development environments with non-persistent events but persistent 
+                    // caches. Treat cache as invalid and start from the beginning.
+                    facade.Reset();
+                }
+            }
+            catch (Exception e)
+            {
+                log?.Warning("[ES init] error while reading cache.", e);
+
+                // Something went wrong when reading the cache. Stop.
+                facade.Reset();
+            }
+        }
+
         /// <summary>
         /// Reads up events up to the last one available. Pre-loads the projection from its cache,
         /// if available, to reduce the necessary work.
         /// </summary>
         public async Task InitializeAsync(CancellationToken cancel = default(CancellationToken))
         {
-            var sw = Stopwatch.StartNew();
+            var log = _log.Timestamped();
+            var facade = new InitFacade(this, cancel);
+            await Initialize(facade, log);
 
-            try
-            {
-                // Load project and discard events before that.
-                _log?.Info($"{sw.Elapsed:mm':'ss'.'ff} [ES init] loading projections.");
-                await _projection.TryLoadAsync(cancel).ConfigureAwait(false);
-
-                var catchUp = _projection.Sequence + 1;
-
-                _log?.Info($"{sw.Elapsed:mm':'ss'.'ff} [ES init] advancing stream to seq {catchUp}.");
-                await Stream.DiscardUpTo(catchUp, cancel).ConfigureAwait(false);
-
-                if (Stream.Sequence < catchUp)
-                {
-                    _log?.Warning(
-                        $"{sw.Elapsed:mm':'ss'.'ff} [ES init] invalid seq {catchUp} > {Stream.Sequence}, resetting everything.");
-
-                    // Cache is apparently beyond the available sequence. Could happen in 
-                    // development environments with non-persistent events but persistent 
-                    // caches. Treat cache as invalid and start from the beginning.
-                    Stream.Reset();
-                    _projection.Reset();
-                }
-            }
-            catch (Exception e)
-            {
-                _log?.Warning(
-                    $"{sw.Elapsed:mm':'ss'.'ff} [ES init] error while reading cache.", e);
-
-                // Something went wrong when reading the cache. Stop.
-                Stream.Reset();
-                _projection.Reset();
-            }
-            
             // Start reading everything
-            _log?.Info($"{sw.Elapsed:mm':'ss'.'ff} [ES init] catching up with stream.");
+            log?.Info("[ES init] catching up with stream.");
             await CatchUpAsync(cancel).ConfigureAwait(false);
-
-            _log?.Info($"{sw.Elapsed:mm':'ss'.'ff} [ES init] DONE !");
+            log?.Info("[ES init] DONE !");
         }
 
         /// <summary> Catch up with locally stored data, without remote fetches. </summary>
