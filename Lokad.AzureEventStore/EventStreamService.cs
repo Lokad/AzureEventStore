@@ -77,36 +77,9 @@ namespace Lokad.AzureEventStore
             CancellationToken cancel)
         {
             return new EventStreamService<TEvent, TState>(
-                storage, projections, projectionCache, null, log, cancel);
+                storage, projections, projectionCache, log, cancel);
         }
 
-        /// <summary> Initialize and start the service. </summary>
-        /// <remarks> 
-        /// This will start a background task that performs all processing
-        /// and regularly updates the contents.
-        /// </remarks>
-        /// <param name="storage"> Identifies where the event stream data is stored. </param>
-        /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
-        /// <param name="projectionCache"> Used to save projected state. </param>
-        /// <param name="events"> 
-        ///     Called on each event committed to the stream (including intial catch-up of 
-        ///     already commited events). 
-        ///     <see cref="EventStreamWrapper{TEvent,TState}.OnEachCommitted"/>
-        /// </param>
-        /// <param name="log"> Used for logging. </param>
-        /// <param name="cancel"> Stops the background tasks when called. </param>
-        public static EventStreamService<TEvent, TState> StartNew(
-            StorageConfiguration storage,
-            IEnumerable<IProjection<TEvent>> projections,
-            IProjectionCacheProvider projectionCache,
-            IEnumerable<Tuple<EventStream<TEvent>.Listener, uint>> events,
-            ILogAdapter log,
-            CancellationToken cancel)
-        {
-            return new EventStreamService<TEvent, TState>(
-                storage, projections, projectionCache, events, log, cancel);
-        }
-        
         /// <remarks>
         ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
         ///     that background tasks are being creatd.
@@ -115,7 +88,6 @@ namespace Lokad.AzureEventStore
             StorageConfiguration storage,
             IEnumerable<IProjection<TEvent>> projections,
             IProjectionCacheProvider projectionCache,
-            IEnumerable<Tuple<EventStream<TEvent>.Listener, uint>> events,
             ILogAdapter log,
             CancellationToken cancel)
         {
@@ -123,10 +95,6 @@ namespace Lokad.AzureEventStore
             _cancel = cancel;
             Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCache, log);
             Quarantine = Wrapper.Quarantine;
-
-            if (events != null)
-                foreach (var pair in events)
-                    Wrapper.OnEachCommitted(pair.Item1, pair.Item2);
 
             Ready = Task.Run(Initialize, cancel);
             Task.Run(Loop, cancel);            

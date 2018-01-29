@@ -70,9 +70,6 @@ namespace Lokad.AzureEventStore.Wrapper
                 await _projection.TryLoadAsync(cancel).ConfigureAwait(false);
 
                 var catchUp = _projection.Sequence + 1;
-                if (_onEachCommitted != null)
-                    foreach (var e in _onEachCommitted)
-                        if (e.Start < catchUp) catchUp = e.Start;
 
                 _log?.Info($"{sw.Elapsed:mm':'ss'.'ff} [ES init] advancing stream to seq {catchUp}.");
                 await Stream.DiscardUpTo(catchUp, cancel).ConfigureAwait(false);
@@ -152,25 +149,6 @@ namespace Lokad.AzureEventStore.Wrapper
                         _projection.SetPossiblyInconsistent();
                         Quarantine.Add(seq, nextEvent, ex);
                     }
-                }
-
-                if (_onEachCommitted == null) continue;
-
-                foreach (var e in _onEachCommitted)
-                {
-                    if (seq < e.Start) continue;
-
-                    try
-                    {
-                        e.Listener(nextEvent, seq);
-                    }
-                    catch (Exception ex)
-                    {
-                        _log?.Warning($"[ES read] processing error on event at seq {seq}.", ex);
-                        _projection.SetPossiblyInconsistent();
-                        Quarantine.Add(seq, nextEvent, ex);
-                    }
-
                 }
             }
         }
@@ -324,20 +302,5 @@ namespace Lokad.AzureEventStore.Wrapper
             /// <remarks> Events before this sequence are not passed. </remarks>            
             public uint Start { get; }
         }
-
-        /// <summary> Triggered for each event committed to the stream. </summary>
-        /// <remarks>
-        ///     Will be triggered once for each event, in the correct order. Upon creation,
-        ///     all events are processed from 
-        /// </remarks>
-        private List<ListenerAndStart> _onEachCommitted;
-
-        /// <summary>
-        ///     Schedules a listener to be called on each event, starting at the 
-        ///     specified sequence number.
-        /// </summary>
-        public void OnEachCommitted(EventStream<TEvent>.Listener listener, uint seq = 0) =>
-            (_onEachCommitted ?? (_onEachCommitted = new List<ListenerAndStart>()))
-                .Add(new ListenerAndStart(listener, seq));
     }
 }
