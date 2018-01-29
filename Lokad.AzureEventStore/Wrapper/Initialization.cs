@@ -19,7 +19,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 log?.Info($"[ES init] advancing stream to seq {catchUp}.");
                 var streamSequence = await facade.DiscardStreamUpTo(catchUp).ConfigureAwait(false);
 
-                if (streamSequence < catchUp)
+                if (streamSequence < projection.Sequence)
                 {
                     log?.Warning(
                         $"[ES init] invalid seq {catchUp} > {streamSequence}, resetting everything.");
