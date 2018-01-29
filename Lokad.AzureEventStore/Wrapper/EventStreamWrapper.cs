@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
 using Lokad.AzureEventStore.Streams;
@@ -28,11 +29,17 @@ namespace Lokad.AzureEventStore.Wrapper
         private readonly ILogAdapter _log;
 
         public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
+            : this(storage.Connect(), projections, projectionCache, log)
+        {}
+
+        internal EventStreamWrapper(IStorageDriver storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
         {
             _log = log;
             Stream = new EventStream<TEvent>(storage, log);
             _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCache, log);
         }
+
+
 
         /// <summary> The current synchronization step. </summary>
         /// <remarks>
