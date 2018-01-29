@@ -92,40 +92,6 @@ namespace Lokad.AzureEventStore.Wrapper
             }
         }
 
-        internal static async Task Initialize(IInitFacade facade, ILogAdapter log = null)
-        {
-            try
-            {
-                // Load project and discard events before that.
-                log?.Info("[ES init] loading projections.");
-
-                var projection = await facade.Projection.ConfigureAwait(false);
-
-                var catchUp = projection.Sequence + 1;
-
-                log?.Info($"[ES init] advancing stream to seq {catchUp}.");
-                var streamSequence = await facade.DiscardStreamUpTo(catchUp).ConfigureAwait(false);
-
-                if (streamSequence < catchUp)
-                {
-                    log?.Warning(
-                        $"[ES init] invalid seq {catchUp} > {streamSequence}, resetting everything.");
-
-                    // Cache is apparently beyond the available sequence. Could happen in 
-                    // development environments with non-persistent events but persistent 
-                    // caches. Treat cache as invalid and start from the beginning.
-                    facade.Reset();
-                }
-            }
-            catch (Exception e)
-            {
-                log?.Warning("[ES init] error while reading cache.", e);
-
-                // Something went wrong when reading the cache. Stop.
-                facade.Reset();
-            }
-        }
-
         /// <summary>
         /// Reads up events up to the last one available. Pre-loads the projection from its cache,
         /// if available, to reduce the necessary work.
@@ -134,7 +100,7 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             var log = _log.Timestamped();
             var facade = new InitFacade(this, cancel);
-            await Initialize(facade, log);
+            await Initialization.Run(facade, log);
 
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
