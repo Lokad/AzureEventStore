@@ -226,10 +226,19 @@ namespace Lokad.AzureEventStore.Streams
             var skip = await Storage.SeekAsync(sequence, 0, cancel);
             if (skip > Position) Position = skip;
 
+            // Drop elements from _cache that are before the requested sequence number
+            while (_cache.Count > 0 && _cache.Peek().Sequence < sequence)
+            {
+                var dequeued = _cache.Dequeue();
+                Sequence = dequeued.Sequence;
+            }
+
             // Continues until _cache contains at least one event past the target
             // sequence number (or no events left)
             while (_lastSequence < sequence)
             {
+                Sequence = _lastSequence;
+
                 const int maxBytes = 1024*1024*4;
                 var read = await Storage.ReadAsync(Position, maxBytes, cancel);
 
@@ -244,22 +253,24 @@ namespace Lokad.AzureEventStore.Streams
                 Position = read.NextPosition;
 
                 // Moved past target sequence: append events to _cache
-                if (read.Events[read.Events.Count - 1].Sequence >= sequence)
+                var lastReadEvent = read.Events[read.Events.Count - 1];
+                _lastSequence = lastReadEvent.Sequence;
+
+                if (_lastSequence >= sequence)
                 {
                     foreach (var e in read.Events)
+                    {
                         if (e.Sequence >= sequence)
+                        {
                             _cache.Enqueue(e);
+                        }
+                        else
+                        {
+                            Sequence = e.Sequence;
+                        }
+                    }
                 }
-
-                _lastSequence = read.Events[read.Events.Count - 1].Sequence;                
             }
-
-            // Drop elements from _cache that are before the sequence
-            while (_cache.Count > 0 && _cache.Peek().Sequence < sequence)
-                _cache.Dequeue();            
-
-            if (Sequence < sequence) 
-                Sequence = sequence;
 
             return Sequence;
         }
