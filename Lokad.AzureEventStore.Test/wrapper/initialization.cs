@@ -83,9 +83,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var facade = new TestFacade(0, 0);
             await Initialization.Run(facade);
-            // it is a bit bizarre that this reset, but at least,
-            // in the case of an empty stream, this is cheap
-            Assert.AreEqual(1, facade.NbResets);
+            // no reset should be performed
+            Assert.AreEqual(0, facade.NbResets);
         }
 
         [Test]
@@ -121,10 +120,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var facade = new TestFacade( 100, 100);
             await Initialization.Run(facade);
-            
-            // actually, we don't want to reset, but in practice, it appears
-            // that we do
-            Assert.AreEqual(1, facade.NbResets); 
+            Assert.AreEqual(0, facade.NbResets); 
         }
 
         /// <summary>
