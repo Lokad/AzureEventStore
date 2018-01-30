@@ -216,7 +216,7 @@ namespace Lokad.AzureEventStore.Streams
         /// until the sequence is greater or equal to the one provided, 
         /// or the end of the stream is reached.
         /// </summary>
-        public async Task DiscardUpTo(uint sequence, CancellationToken cancel = default(CancellationToken))
+        public async Task<uint> DiscardUpTo(uint sequence, CancellationToken cancel = default(CancellationToken))
         {
             // First, try to seek forward to skip over many events at once
             var skip = await Storage.SeekAsync(sequence, 0, cancel);
@@ -234,7 +234,7 @@ namespace Lokad.AzureEventStore.Streams
                 {
 	                _cache.Clear();
                     Sequence = _lastSequence;
-                    return;
+                    return Sequence;
                 }
 
                 Position = read.NextPosition;
@@ -256,6 +256,8 @@ namespace Lokad.AzureEventStore.Streams
 
             if (Sequence < sequence) 
                 Sequence = sequence;
+
+            return Sequence;
         }
 
         /// <summary> Resets the stream to the beginning. </summary>

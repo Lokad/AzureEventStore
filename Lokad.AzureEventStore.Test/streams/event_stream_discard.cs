@@ -105,10 +105,11 @@ namespace Lokad.AzureEventStore.Test.streams
         private async Task DiscardAndAssert(uint requestedSeq)
         {
             var stream = new EventStream<LargeEvt>(storeWithLargeEvents);
-            await stream.DiscardUpTo(requestedSeq);
+            var returnedSequence = await stream.DiscardUpTo(requestedSeq);
             var expectedSequence = ExpectedSequenceAfterDiscard(lastEvent, requestedSeq);
 
             Assert.AreEqual(expectedSequence, stream.Sequence);
+            Assert.AreEqual(returnedSequence, stream.Sequence);
 
             if (requestedSeq == 0)
             {
