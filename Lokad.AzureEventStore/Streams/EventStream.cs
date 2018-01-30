@@ -212,10 +212,14 @@ namespace Lokad.AzureEventStore.Streams
         }
 
         /// <summary>
-        /// Advance the stream by discarding the events 
-        /// until the sequence is greater or equal to the one provided, 
-        /// or the end of the stream is reached.
+        /// Advance the stream by discarding the events. After returning,
+        /// <see cref="Sequence"/> has the value of the sequence number of
+        /// the event that takes place just before the one at the requested
+        /// <paramref name="sequence" /> number. If there is
+        /// no such event, the sequence number of the latest event in the stream
+        /// is returned
         /// </summary>
+        /// <returns>the new value of <see cref="Sequence"/>.</returns>
         public async Task<uint> DiscardUpTo(uint sequence, CancellationToken cancel = default(CancellationToken))
         {
             // First, try to seek forward to skip over many events at once

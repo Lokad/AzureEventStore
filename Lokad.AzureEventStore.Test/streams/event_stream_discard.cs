@@ -60,7 +60,7 @@ namespace Lokad.AzureEventStore.Test.streams
             }
             else
             {
-                return requestedSeq;
+                return requestedSeq == 0 ? 0 : requestedSeq - 1;
             }
         }
 

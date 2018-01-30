@@ -232,7 +232,7 @@ namespace Lokad.AzureEventStore.Test.streams
             while (await stream.FetchAsync()) { }
             await stream.DiscardUpTo(11);
             
-            Assert.AreEqual((uint) 11, (uint) stream.Sequence);
+            Assert.AreEqual((uint) 10, (uint) stream.Sequence);
 
             var next = 10;
 
