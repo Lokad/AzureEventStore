@@ -91,5 +91,27 @@ namespace Lokad.AzureEventStore.Streams
             var commit = await stream.BackgroundFetchAsync(cancel);
             return commit();
         }
+
+        /// <summary>
+        /// provides the caller with the next event in the stream. It may trigger at most one call to <see cref="FetchAsync"/>.
+        /// You may use this to implement active (polling) wait for an event. What this method won't do is block until a new
+        /// event has been published.
+        /// </summary>
+        public static async Task<TEvent> TryGetNextAsync<TEvent>(this IEventStream<TEvent> stream, CancellationToken cancel = default(CancellationToken))
+            where TEvent: class
+        {
+            var next = stream.TryGetNext();
+            if (next != null)
+            {
+                return next;
+            }
+
+            if (await stream.FetchAsync(cancel))
+            {
+                return stream.TryGetNext();
+            }
+
+            return null;
+        }
     }
 }

@@ -116,21 +116,16 @@ namespace Lokad.AzureEventStore.Test.streams
                 requestedSeq = 1;
             }
 
+
+            var nextEvt = await stream.TryGetNextAsync();
             if (requestedSeq <= lastEvent)
             {
-                var nextEvt = stream.TryGetNext();
-                if (nextEvt == null)
-                {
-                    Assert.IsTrue(await stream.FetchAsync());
-                    nextEvt = stream.TryGetNext();
-                    Assert.IsNotNull(nextEvt);
-                }
+                Assert.IsNotNull(nextEvt);
                 Assert.AreEqual(requestedSeq, nextEvt.IntSeq);
             }
             else
             {
-                Assert.IsNull(stream.TryGetNext());
-                Assert.IsFalse(await stream.FetchAsync());
+                Assert.IsNull(nextEvt);
             }
         }
 
