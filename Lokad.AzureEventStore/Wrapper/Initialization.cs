@@ -1,33 +1,40 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
+using Lokad.AzureEventStore.Projections;
+using Lokad.AzureEventStore.Streams;
 
 namespace Lokad.AzureEventStore.Wrapper
 {
     internal static class Initialization
     {
-        internal static async Task Run(IInitFacade facade, ILogAdapter log = null)
+        internal static async Task Run(IReifiedProjection projection, IEventStream stream, CancellationToken cancel = default(CancellationToken), ILogAdapter log = null)
         {
             try
             {
                 // Load project and discard events before that.
                 log?.Info("[ES init] loading projections.");
 
-                var projection = await facade.Projection.ConfigureAwait(false);
+                await projection.TryLoadAsync(cancel).ConfigureAwait(false);
 
                 var catchUp = projection.Sequence + 1;
 
                 log?.Info($"[ES init] advancing stream to seq {catchUp}.");
-                var streamSequence = await facade.DiscardStreamUpTo(catchUp).ConfigureAwait(false);
+                var streamSequence = await stream.DiscardUpTo(catchUp, cancel).ConfigureAwait(false);
 
-                if (streamSequence < projection.Sequence)
+                if( cancel.IsCancellationRequested)
+                    return;
+
+                if (streamSequence != projection.Sequence)
                 {
                     log?.Warning(
-                        $"[ES init] invalid seq {catchUp} > {streamSequence}, resetting everything.");
+                        $"[ES init] projection seq {projection.Sequence} not found in stream (max seq is {streamSequence}: resetting everything.");
 
                     // Cache is apparently beyond the available sequence. Could happen in
                     // development environments with non-persistent events but persistent
                     // caches. Treat cache as invalid and start from the beginning.
-                    facade.Reset();
+                    stream.Reset();
+                    projection.Reset();
                 }
             }
             catch (Exception e)
@@ -35,7 +42,8 @@ namespace Lokad.AzureEventStore.Wrapper
                 log?.Warning("[ES init] error while reading cache.", e);
 
                 // Something went wrong when reading the cache. Stop.
-                facade.Reset();
+                stream.Reset();
+                projection.Reset();
             }
         }
     }

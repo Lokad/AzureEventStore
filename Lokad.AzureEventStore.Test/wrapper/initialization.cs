@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
+using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Test.streams;
 using Lokad.AzureEventStore.Wrapper;
 using Moq;
@@ -11,6 +13,28 @@ namespace Lokad.AzureEventStore.Test.wrapper
     [TestFixture]
     public class initialization
     {
+        [TestCase(0, 0, 1, 0, TestName = "empty_stream")]
+        [TestCase(0, 10, 1, 0, TestName = "non_empty_stream_no_projection")]
+        [TestCase(100, 110, 101, 0, TestName = "regular_startup_10_events_ahead")]
+        [TestCase(0, 10, 1, 0, TestName = "regular_startup_no_projection")]
+        [TestCase(98, 100, 99, 0, TestName = "regular_startup_1_event_ahead")]
+        [TestCase(99, 100, 100, 0, TestName = "regular_startup_2_events_ahead")]
+        [TestCase(100, 100, 101, 0, TestName = "startup_with_no_new_event", Description = "We don't want this one to reset")]
+        [TestCase(101, 100, 102, 1, TestName = "startup_with_projection_ahead_of_events")]
+        [TestCase(102, 100, 103, 1, TestName = "startup_with_projection_far_ahead_of_events")]
+        public async Task test(int projectionSeq, int streamSeq, int expectedRequestedDiscardSeq, int expectedResets)
+        {
+            if (streamSeq < 0 || projectionSeq < 0 || expectedRequestedDiscardSeq < 0 || expectedResets < 0)
+                throw new Exception("positive int required");
+
+            var projection = Mock.Of<IReifiedProjection>(proj => proj.Sequence == (uint)projectionSeq);
+            var stream = new MockStream((uint)streamSeq);
+            await Initialization.Run(projection, stream);
+
+            Assert.AreEqual(expectedRequestedDiscardSeq, stream.RequestedDiscardSeq);
+            Assert.AreEqual(expectedResets, stream.NbResets);
+        }
+
         private static Task<IReifiedProjection> ProjectionWithSeqnum(uint seqnum)
         {
             var mockedProjection =  new Mock<IReifiedProjection>();
@@ -18,125 +42,38 @@ namespace Lokad.AzureEventStore.Test.wrapper
             return Task.FromResult(mockedProjection.Object);
         }
 
-        internal class TestFacade : IInitFacade
+        private class MockStream : IEventStream
         {
-            private readonly Action _onReset;
+            public readonly uint LatestEvent;
             public int NbResets { get; private set; }
+            public uint? RequestedDiscardSeq { get; private set; }
 
-            public TestFacade(uint projectionSeq, uint latestEvent)
+            public MockStream(uint latestEvent)
             {
-                ProjectionSeqNum = projectionSeq;
-                Projection = ProjectionWithSeqnum(projectionSeq);
-
                 LatestEvent = latestEvent;
             }
 
-            public uint ProjectionSeqNum { get; }
-            public uint LatestEvent { get; }
+            public Task<uint> DiscardUpTo(uint seq, CancellationToken cancel = default(CancellationToken))
+            {
+                if( RequestedDiscardSeq.HasValue)
+                    throw new Exception("Single use method only - this is a mock object");
 
-            public Task<IReifiedProjection> Projection { get;  }
+                RequestedDiscardSeq = seq;
+                Sequence = event_stream_discard.ExpectedSequenceAfterDiscard(LatestEvent, seq);
+                return Task.FromResult(Sequence);
+            }
 
-            public virtual Task<uint> DiscardStreamUpTo(uint seq)
-                => Task.FromResult( event_stream_discard.ExpectedSequenceAfterDiscard(LatestEvent, seq));
-
+            public uint Sequence { get; private set; }
             public void Reset()
             {
                 NbResets++;
             }
+
+            public Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default(CancellationToken))
+            {
+                Assert.Fail(nameof(BackgroundFetchAsync) + " not mocked");
+                throw new NotImplementedException();
+            }
         }
-
-        #region test AdvanceStream
-        [Test]
-        public async Task advance_on_empty_stream()
-        {
-            var mock = new Mock<TestFacade>(MockBehavior.Default, 0u, 0u);
-            var facade = mock.Object;
-            await Initialization.Run(facade);
-
-            mock.Verify( f => f.DiscardStreamUpTo(1));
-        }
-
-        [Test]
-        public async Task advance_on_non_empty_stream_no_projection()
-        {
-            var mock = new Mock<TestFacade>(MockBehavior.Default, 0u, 10u);
-            var facade = mock.Object;
-            await Initialization.Run(facade);
-
-            mock.Verify( f => f.DiscardStreamUpTo(1));
-        }
-
-        [Test]
-        public async Task advance_on_regular_stream_projection()
-        {
-            var mock = new Mock<TestFacade>(MockBehavior.Default, 100u, 110u);
-            var facade = mock.Object;
-            await Initialization.Run(facade);
-
-            mock.Verify( f => f.DiscardStreamUpTo(101));
-        }
-        #endregion
-
-        #region test with no listeners
-        [Test]
-        public async Task empty_stream()
-        {
-            var facade = new TestFacade(0, 0);
-            await Initialization.Run(facade);
-            // no reset should be performed
-            Assert.AreEqual(0, facade.NbResets);
-        }
-
-        [Test]
-        public async Task regular_startup_1_event_ahead()
-        {
-            int nbReset = 0;
-            var facade = new TestFacade( 100, 101);
-            await Initialization.Run(facade);
-            Assert.AreEqual(0, facade.NbResets);
-        }
-
-        [Test]
-        public async Task regular_startup_2_events_ahead()
-        {
-            var facade = new TestFacade( 100, 102);
-            await Initialization.Run(facade);
-            Assert.AreEqual(0, facade.NbResets);
-        }
-
-        [Test]
-        public async Task regular_startup_no_projection()
-        {
-            var facade = new TestFacade( 0, 10);
-            await Initialization.Run(facade);
-            Assert.AreEqual(0, facade.NbResets);
-        }
-
-        /// <summary>
-        /// This tests implement the behaviour we want to change
-        /// </summary>
-        [Test]
-        public async Task startup_with_no_newevents()
-        {
-            var facade = new TestFacade( 100, 100);
-            await Initialization.Run(facade);
-            Assert.AreEqual(0, facade.NbResets); 
-        }
-
-        /// <summary>
-        ///  but on the other hand we still want the reset in this case:
-        /// </summary>
-        /// <returns></returns>
-        [Test]
-        public async Task startup_with_projection_ahead_of_events()
-        {
-            var facade = new TestFacade( 101, 100 );
-            await Initialization.Run(facade);
-            
-            Assert.AreEqual(1, facade.NbResets); // we want to reset, really. that the projection
-                                                 // is ahead of the event stream is a sure sign that
-                                                 // one of them has been hacked
-        }
-        #endregion
     }
 }

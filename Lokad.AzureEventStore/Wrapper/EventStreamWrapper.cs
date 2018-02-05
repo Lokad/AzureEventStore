@@ -61,37 +61,6 @@ namespace Lokad.AzureEventStore.Wrapper
         // the case of deserialization errors.
         public uint Sequence => Stream.Sequence;
 
-        private class InitFacade : IInitFacade
-        {
-            private readonly EventStreamWrapper<TEvent, TState> _wrapper;
-            private readonly Lazy<Task<IReifiedProjection>> _projection;
-            private readonly CancellationToken _cancel;
-
-            public InitFacade(EventStreamWrapper<TEvent, TState> wrapper, CancellationToken cancel)
-            {
-                _wrapper = wrapper;
-                _cancel = cancel;
-                _projection = new Lazy<Task<IReifiedProjection>>( LoadProjection, LazyThreadSafetyMode.ExecutionAndPublication );
-            }
-
-            private async Task<IReifiedProjection> LoadProjection()
-            {
-                await _wrapper._projection.TryLoadAsync(_cancel).ConfigureAwait(false);
-                return _wrapper._projection;
-            }
-
-            public Task<IReifiedProjection> Projection => _projection.Value;
-
-            public async Task<uint> DiscardStreamUpTo(uint catchUpSeq)
-                => await _wrapper.Stream.DiscardUpTo(catchUpSeq, _cancel).ConfigureAwait(false);
-
-            public void Reset()
-            {
-                _wrapper.Stream.Reset();
-                _wrapper._projection.Reset();
-            }
-        }
-
         /// <summary>
         /// Reads up events up to the last one available. Pre-loads the projection from its cache,
         /// if available, to reduce the necessary work.
@@ -99,8 +68,7 @@ namespace Lokad.AzureEventStore.Wrapper
         public async Task InitializeAsync(CancellationToken cancel = default(CancellationToken))
         {
             var log = _log.Timestamped();
-            var facade = new InitFacade(this, cancel);
-            await Initialization.Run(facade, log);
+            await Initialization.Run(_projection, Stream, cancel);
 
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
