@@ -40,7 +40,7 @@ namespace Lokad.AzureEventStore.Streams
         private readonly ILogAdapter _log;
         
         /// <summary> Open an event stream, connecting to the specified store. </summary>
-        public EventStream(StorageConfiguration storage, ILogAdapter log = null) :this(storage.Connect(), log)
+        public EventStream(StorageConfiguration storage, ILogAdapter log = null) : this(storage.Connect(), log)
         {
         }
 
@@ -79,9 +79,6 @@ namespace Lokad.AzureEventStore.Streams
         /// </summary>
         private readonly Queue<RawEvent> _cache = new Queue<RawEvent>();
 
-        /// <summary> A listener function. </summary>        
-        public delegate void Listener(TEvent e, uint seq);
-        
         /// <summary>
         /// <see cref="IEventStream{TEvent}.WriteAsync"/>
         /// </summary>

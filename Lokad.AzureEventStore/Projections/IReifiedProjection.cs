@@ -46,7 +46,7 @@ namespace Lokad.AzureEventStore.Projections
     internal interface IReifiedProjection<in TEvent> : IReifiedProjection
     {
         /// <summary> Apply the specified event to the state. </summary>
-        /// <remarks> The sequence number must be greater than <see cref="Sequence"/>. </remarks>
+        /// <remarks> The sequence number must be greater than <see cref="IReifiedProjection.Sequence"/>. </remarks>
         void Apply(uint seq, TEvent e);
     }
 

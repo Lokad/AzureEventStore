@@ -6,6 +6,7 @@ using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
 using Lokad.AzureEventStore.Streams;
+using Lokad.AzureEventStore.Util;
 
 namespace Lokad.AzureEventStore.Wrapper
 {
@@ -293,26 +294,6 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             _projection.Reset();
             Stream.Reset();
-        }
-
-        /// <summary> 
-        ///     Combines a <see cref="EventStream{TEvent}.Listener"/> and the sequence 
-        ///     at which it starts listening. 
-        /// </summary>
-        private struct ListenerAndStart
-        {
-            public ListenerAndStart(EventStream<TEvent>.Listener listener, uint start)
-            {
-                Listener = listener;
-                Start = start;
-            }
-
-            /// <summary> The listener. </summary>
-            public EventStream<TEvent>.Listener Listener { get; }
-
-            /// <summary> The first event that the listener needs to hear. </summary>
-            /// <remarks> Events before this sequence are not passed. </remarks>            
-            public uint Start { get; }
         }
     }
 }

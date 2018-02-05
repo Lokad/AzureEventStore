@@ -6,16 +6,17 @@ using System.Threading.Tasks;
 namespace Lokad.AzureEventStore.Streams
 {
     /// <summary>
-    /// EventStream members that don't depend on the event type
+    /// <see cref="EventStream{TEvent}"/> members that don't depend on the event type. For those that do,
+	/// there is <see cref="IEventStream{TEvent}"/>.
     /// </summary>
     public interface IEventStream
     {
-        /// <summary> The sequence number assigned to the last event returned by <see cref="TryGetNext"/>. </summary>s
+        /// <summary> The sequence number assigned to the last event returned by <see cref="IEventStream{TEvent}.TryGetNext"/>. </summary>
         uint Sequence { get; }
 
-        /// <summary> Almost thread-safe version of <see cref="FetchAsync"/>. </summary>
+        /// <summary> Almost thread-safe version of <see cref="Extensions.FetchAsync"/>. </summary>
         /// <remarks>
-        /// You may call <see cref="TryGetNext"/> while the task is running, but NOT
+        /// You may call <see cref="IEventStream{TEvent}.TryGetNext"/> while the task is running, but NOT
         /// any other method. The function returned by the task is not thread-safe.
         ///
         /// This is intended for use in a "fetch in thread A, process in thread B"
@@ -41,14 +42,14 @@ namespace Lokad.AzureEventStore.Streams
     }
 
     /// <summary>
-    /// EventStream members that depend in the event type
+    /// <see cref="EventStream{TEvent}"/> members that depend in the event type
     /// </summary>
     public interface IEventStream<TEvent> : IEventStream
     {
         /// <summary>Provides the caller with the next event in the stream</summary>
         /// <remarks>
         /// Returns the next event, if any. Returns null if there are no more events
-        /// available in the local cache, in which case <see cref="FetchAsync"/> should
+        /// available in the local cache, in which case <see cref="Extensions.FetchAsync"/> should
         /// be called to fetch more remote data (if available).
         ///
         /// This function will throw if deserialization fails, but the event will
@@ -65,7 +66,7 @@ namespace Lokad.AzureEventStore.Streams
         ///
         /// If this object's state no longer represents the remote stream (because other
         /// events have been written from elsewhere), this method will not write any
-        /// events and will return null. The caller should call <see cref="FetchAsync"/>
+        /// events and will return null. The caller should call <see cref="Extensions.FetchAsync"/>
         /// until it returns false to have the object catch up with remote state.
         /// </remarks>
         Task<uint?> WriteAsync(IReadOnlyList<TEvent> events, CancellationToken cancel = default(CancellationToken));

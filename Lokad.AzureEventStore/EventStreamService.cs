@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
-using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Util;
 using Lokad.AzureEventStore.Wrapper;
 

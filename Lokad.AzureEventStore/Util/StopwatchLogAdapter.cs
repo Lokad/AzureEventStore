@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 
-namespace Lokad.AzureEventStore
+namespace Lokad.AzureEventStore.Util
 {
     public static class LogAdapterExtension
     {
