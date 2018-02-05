@@ -68,12 +68,51 @@ namespace Lokad.AzureEventStore.Wrapper
         public async Task InitializeAsync(CancellationToken cancel = default(CancellationToken))
         {
             var log = _log.Timestamped();
-            await Initialization.Run(_projection, Stream, cancel);
+            await Catchup(_projection, Stream, cancel);
 
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
             await CatchUpAsync(cancel).ConfigureAwait(false);
             log?.Info("[ES init] DONE !");
+        }
+
+        internal static async Task Catchup(IReifiedProjection projection, IEventStream stream, CancellationToken cancel = default(CancellationToken), ILogAdapter log = null)
+        {
+            try
+            {
+                // Load project and discard events before that.
+                log?.Info("[ES init] loading projections.");
+
+                await projection.TryLoadAsync(cancel).ConfigureAwait(false);
+
+                var catchUp = projection.Sequence + 1;
+
+                log?.Info($"[ES init] advancing stream to seq {catchUp}.");
+                var streamSequence = await stream.DiscardUpTo(catchUp, cancel).ConfigureAwait(false);
+
+                if (cancel.IsCancellationRequested)
+                    return;
+
+                if (streamSequence != projection.Sequence)
+                {
+                    log?.Warning(
+                        $"[ES init] projection seq {projection.Sequence} not found in stream (max seq is {streamSequence}: resetting everything.");
+
+                    // Cache is apparently beyond the available sequence. Could happen in 
+                    // development environments with non-persistent events but persistent 
+                    // caches. Treat cache as invalid and start from the beginning.
+                    stream.Reset();
+                    projection.Reset();
+                }
+            }
+            catch (Exception e)
+            {
+                log?.Warning("[ES init] error while reading cache.", e);
+
+                // Something went wrong when reading the cache. Stop.
+                stream.Reset();
+                projection.Reset();
+            }
         }
 
         /// <summary> Catch up with locally stored data, without remote fetches. </summary>

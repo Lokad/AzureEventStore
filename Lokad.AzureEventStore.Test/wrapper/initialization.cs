@@ -29,7 +29,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             var projection = Mock.Of<IReifiedProjection>(proj => proj.Sequence == (uint)projectionSeq);
             var stream = new MockStream((uint)streamSeq);
-            await Initialization.Run(projection, stream);
+            await EventStreamWrapper<object, object>.Catchup(projection, stream);
 
             Assert.AreEqual(expectedRequestedDiscardSeq, stream.RequestedDiscardSeq);
             Assert.AreEqual(expectedResets, stream.NbResets);
