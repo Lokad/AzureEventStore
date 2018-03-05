@@ -202,7 +202,7 @@ namespace Lokad.AzureEventStore
         /// </remarks>
         private Task<T> EnqueueAction<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancel)
         {
-            if (!IsReady) throw new InvalidOperationException("EventStreamService not ready.");
+            if (!IsReady) throw new StreamNotReadyException();
 
             // This will store the result of the action
             var tcs = new TaskCompletionSource<T>();
