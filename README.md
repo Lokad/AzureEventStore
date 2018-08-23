@@ -118,7 +118,7 @@ and only references the word (`Key`).
 
 As expected of an event sourcing solution, the primary way of accessing the state
 application is not to read back through the event stream (which would become very 
-time-consuming as the streal grows) but instead to create one or more materialized
+time-consuming as the stream grows) but instead to create one or more materialized
 views of the state. Keeping these views up-to-date can be done efficiently by applying
 new events as they appear.
 
@@ -302,7 +302,7 @@ obsolete), the service will fetch any new events, update the local state,
 and call the builder again. This repeats until the builder throws, 
 returns no events, or the appending succeeds. 
 
-Function `service.With(params IEvent[] events)` is a good helper function
+Function `service.Use(params IEvent[] events)` is a good helper function
 for creating an `Append<IEvent>`:
 
 ```
@@ -310,14 +310,14 @@ for creating an `Append<IEvent>`:
 	await service.AppendEventsAsync(state =>
 	{
 		state.Bindings.TryGetValue(word, out int currentCount);
-		return service.With(new ValueUpdated(word, currentCount + 1));
+		return service.Use(new ValueUpdated(word, currentCount + 1));
 	}, CancellationToken.None)
 ```
 
 In practice, it is often useful to return some state from the builder back
 to the calling context. For instance, if the builder creates a new item in
 the state, it should be able to return the identifier of the new item. This
-is possible by using an `Append<T, IEvent>` instead, which carries data out
+is possible by using an `Append<IEvent, TResult>` instead, which carries data out
 of the builder: 
 
 ```
@@ -330,7 +330,7 @@ of the builder:
 		    new ValueUpdated(word, currentCount + 1));
 	}, CancellationToken.None);
 
-	var newCount = result.More;
+	var newCount = result.Result;
 ```
 
 ## Architecture
