@@ -118,7 +118,7 @@ and only references the word (`Key`).
 
 As expected of an event sourcing solution, the primary way of accessing the state
 application is not to read back through the event stream (which would become very 
-time-consuming as the streal grows) but instead to create one or more materialized
+time-consuming as the stream grows) but instead to create one or more materialized
 views of the state. Keeping these views up-to-date can be done efficiently by applying
 new events as they appear.
 
