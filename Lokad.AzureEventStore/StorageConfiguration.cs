@@ -71,8 +71,8 @@ namespace Lokad.AzureEventStore
             }
             else
             {
-                var filePath = string.IsNullOrWhiteSpace(cname) ? cs : Path.Combine(cs, cname);
-                driver = new FileStorageDriver(cs);
+                string filePath = string.IsNullOrWhiteSpace(cname) ? cs : Path.Combine(cs, cname);
+                driver = new FileStorageDriver(filePath);
             }
             
             if (Trace)
