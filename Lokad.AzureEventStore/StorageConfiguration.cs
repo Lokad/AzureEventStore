@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using Lokad.AzureEventStore.Drivers;
 using Microsoft.WindowsAzure.Storage;
 
@@ -70,6 +71,7 @@ namespace Lokad.AzureEventStore
             }
             else
             {
+                var filePath = string.IsNullOrWhiteSpace(cname) ? cs : Path.Combine(cs, cname);
                 driver = new FileStorageDriver(cs);
             }
             
