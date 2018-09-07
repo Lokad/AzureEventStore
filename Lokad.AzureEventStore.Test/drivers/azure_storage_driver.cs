@@ -1,5 +1,9 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Auth;
@@ -12,7 +16,7 @@ namespace Lokad.AzureEventStore.Test.drivers
     internal class azure_storage_driver : storage_driver
     {
         private CloudBlobContainer _container;
-        
+
         protected override IStorageDriver GetFreshStorageDriver()
         {
             // For CI, read from environment variable
@@ -44,6 +48,129 @@ namespace Lokad.AzureEventStore.Test.drivers
             catch
             {
                 Console.WriteLine($"Failed to delete {_container.Name}");
+            }
+        }
+
+        [Test, Explicit]
+        public async Task compaction()
+        {
+            var sw = Stopwatch.StartNew();
+            var bytes = new byte[8];
+            var driver = (AzureStorageDriver)GetFreshStorageDriver();
+            var p = await driver.GetPositionAsync();
+
+            var seq = (int)await driver.GetLastKeyAsync();
+            if (p == 0) seq = -1;
+
+            for (var i = seq + 1; i < 2 * 50_000; ++i)
+            {
+                bytes[0] = (byte)(i >> 24);
+                bytes[1] = (byte)(i >> 16);
+                bytes[2] = (byte)(i >> 8);
+                bytes[3] = (byte)i;
+
+                while (true)
+                {
+                    var dwr = await driver.WriteAsync(p, new[] { new RawEvent((uint)i, bytes) });
+                    if (!dwr.Success) continue;
+                    p = dwr.NextPosition;
+                    break;
+                }
+
+                if (i % 1000 == 0) Trace.WriteLine($"Emitted {i}");
+
+                Assert.IsNull(driver.RunningCompaction);
+            }
+
+            Trace.WriteLine($"Written in {sw.Elapsed}");
+
+
+            // Read entire stream, test equality, and measure duration
+            sw.Restart();
+            {
+                var rp = 0L;
+                var j = 0;
+                while (rp < p)
+                {
+                    var drr = await driver.ReadAsync(rp, 4 * 1024 * 1024);
+                    rp = drr.NextPosition;
+                    foreach (var e in drr.Events)
+                    {
+                        bytes[0] = (byte)(j >> 24);
+                        bytes[1] = (byte)(j >> 16);
+                        bytes[2] = (byte)(j >> 8);
+                        bytes[3] = (byte)j;
+
+                        Assert.AreEqual((uint)j, e.Sequence);
+                        CollectionAssert.AreEqual(bytes, e.Contents);
+
+                        ++j;
+                        if (j % 1000 == 0) Trace.WriteLine($"Read {j}");
+                    }
+                }
+
+                Assert.AreEqual(j, 2 * 50_000);
+            }
+
+            Trace.WriteLine($"Read (non-compacted) in {sw.Elapsed}");
+
+            // Append an event that starts the 3rd blob
+            while (true)
+            {
+                bytes[3]++;
+                var dwr = await driver.WriteAsync(p, new[] { new RawEvent((uint)2 * 50_000, bytes) });
+                if (!dwr.Success) continue;
+                p = dwr.NextPosition;
+                break;
+            }
+
+            Assert.IsNotNull(driver.RunningCompaction);
+
+            if (driver.RunningCompaction != null)
+            {
+                sw.Restart();
+                await driver.RunningCompaction;
+                Trace.WriteLine($"Compaction in {sw.Elapsed}");
+            }
+
+            // After the compaction, force a refresh and test:
+            var wp = await driver.RefreshCache(CancellationToken.None);
+
+            // Still the same write position
+            Assert.AreEqual(p, wp);
+
+            // The correct number of blobs (one compact, one being appended to)
+            CollectionAssert.AreEqual(
+                new[] { "events.00001.compact", "events.00002" },
+                driver.Blobs.Select(b => b.Name));
+
+            // Read all the stream again, measure duration
+            {
+                sw.Restart();
+                var rp = 0L;
+                var j = 0;
+                while (rp < p)
+                {
+                    var drr = await driver.ReadAsync(rp, 4 * 1024 * 1024);
+                    rp = drr.NextPosition;
+                    foreach (var e in drr.Events)
+                    {
+                        bytes[0] = (byte)(j >> 24);
+                        bytes[1] = (byte)(j >> 16);
+                        bytes[2] = (byte)(j >> 8);
+                        bytes[3] = (byte)j;
+
+                        Assert.AreEqual((uint)j, e.Sequence);
+                        CollectionAssert.AreEqual(bytes, e.Contents);
+
+                        ++j;
+                        if (j % 1000 == 0) Trace.WriteLine($"Read {j}");
+                    }
+                }
+
+                Trace.WriteLine($"Read (compacted) in {sw.Elapsed}");
+
+                Assert.AreEqual(j, 2 * 50_000 + 1);
             }
         }
     }

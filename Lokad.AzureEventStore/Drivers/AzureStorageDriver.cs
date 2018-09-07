@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.WindowsAzure.Storage;
@@ -18,7 +19,7 @@ namespace Lokad.AzureEventStore.Drivers
     internal sealed class AzureStorageDriver : IStorageDriver
     {
         /// <summary> For each append blob, the position at which it starts. </summary>
-        private readonly List<long> _firstPosition = new List<long>(); 
+        private readonly List<long> _firstPosition = new List<long>();
 
         /// <summary> For each append blob, the first key it contains. </summary>
         /// <remarks>
@@ -30,12 +31,15 @@ namespace Lokad.AzureEventStore.Drivers
         /// <summary> Read-only access to <see cref="_firstKey"/>. </summary>
         internal IReadOnlyList<uint> FirstKey => _firstKey;
 
-        /// <summary> All append blobs, in the appropriate order. </summary>
-        /// <remarks> Always as long as <see cref="_firstPosition"/>. </remarks>
-        private readonly List<CloudAppendBlob> _blobs = new List<CloudAppendBlob>();
+        /// <summary> All blobs, in the appropriate order. </summary>
+        /// <remarks> 
+        ///     Always as long as <see cref="_firstPosition"/>. 
+        ///     The last element is always a <see cref="CloudAppendBlob"/>.
+        /// </remarks>
+        private readonly List<CloudBlob> _blobs = new List<CloudBlob>();
 
         /// <summary> Read-only access to <see cref="_blobs"/>. </summary>
-        internal IReadOnlyList<CloudAppendBlob> Blobs => _blobs;
+        internal IReadOnlyList<CloudBlob> Blobs => _blobs;
 
         /// <summary> The container where blobs are stored. </summary>
         private readonly CloudBlobContainer _container;
@@ -54,15 +58,19 @@ namespace Lokad.AzureEventStore.Drivers
         /// Refreshes the local cache of positions, keys and blobs from Azure.         
         /// Returns the write position.
         /// </summary>        
-        private async Task<long> RefreshCache(CancellationToken cancel)
+        internal async Task<long> RefreshCache(CancellationToken cancel)
         {
             // Download the complete list of blobs from the server. It's easier to 
             // perform processing in-memory rather than streaming through the listing.
             var newBlobs = await _container.ListEventBlobsAsync(cancel);
-            
+
             if (newBlobs.Count == 0)
                 // This is an empty stream.
                 return _lastKnownPosition = 0;
+
+            if (newBlobs.Count >= 3)
+                // Can benefit from compaction.
+                TriggerCompaction(newBlobs);
 
             // STEP 1: _firstPosition and _lastKnownPosition
             // =============================================
@@ -75,14 +83,14 @@ namespace Lokad.AzureEventStore.Drivers
                 _blobs.Add(newBlobs[i]);
                 _firstPosition.Add(i == 0 ? 0L : _firstPosition[i - 1] + newBlobs[i - 1].Properties.Length);
             }
-                        
+
             // The last known position always increases based on the length of the last blob.
             _lastKnownPosition = newBlobs[newBlobs.Count - 1].Properties.Length
                                  + _firstPosition[_firstPosition.Count - 1];
 
             // STEP 2: _firstKey
             // =================
-            
+
             // Is the last blob empty or not ? If it is, we don't want to compute
             // its _firstKey yet.
             var nonEmptyBlobCount = _blobs[_blobs.Count - 1].Properties.Length < 6
@@ -99,7 +107,7 @@ namespace Lokad.AzureEventStore.Drivers
             // the appropriate size with dummy data...
             while (_firstKey.Count < nonEmptyBlobCount)
                 _firstKey.Add(0);
-            
+
             // ...then, in parallel, query the first key of each new blob. 
             await Task.WhenAll(
                 Enumerable.Range(oldNonEmptyBlobCount, nonEmptyBlobCount - oldNonEmptyBlobCount)
@@ -112,7 +120,7 @@ namespace Lokad.AzureEventStore.Drivers
                                          + ((uint)buffer[4] << 16)
                                          + ((uint)buffer[5] << 24);
                     }));
-            
+
             return _lastKnownPosition;
         }
 
@@ -145,7 +153,7 @@ namespace Lokad.AzureEventStore.Drivers
         {
             // Caller knows something we don't? Refresh!
             if (position > _lastKnownPosition)
-                _lastKnownPosition = await RefreshCache(cancel); 
+                _lastKnownPosition = await RefreshCache(cancel);
 
             // Quick early-out with no Azure request involved.
             if (position < _lastKnownPosition)
@@ -180,7 +188,8 @@ namespace Lokad.AzureEventStore.Drivers
             try
             {
                 var offset = _firstPosition[_blobs.Count - 1];
-                await _blobs[_blobs.Count - 1].AppendTransactionalAsync(payload, position - offset, cancel);
+                var lastBlob = (CloudAppendBlob)_blobs[_blobs.Count - 1];
+                await lastBlob.AppendTransactionalAsync(payload, position - offset, cancel);
 
                 _lastKnownPosition = position + payload.Length;
 
@@ -205,7 +214,8 @@ namespace Lokad.AzureEventStore.Drivers
 
             try
             {
-                await _blobs[_blobs.Count - 1].AppendTransactionalAsync(payload, 0, cancel);
+                var lastBlob = (CloudAppendBlob)_blobs[_blobs.Count - 1];
+                await lastBlob.AppendTransactionalAsync(payload, 0, cancel);
 
                 _lastKnownPosition = position + payload.Length;
 
@@ -223,7 +233,10 @@ namespace Lokad.AzureEventStore.Drivers
             return new DriverWriteResult(await RefreshCache(cancel), false);
         }
 
-        public async Task<DriverReadResult> ReadAsync(long position, long maxBytes, CancellationToken cancel = new CancellationToken())
+        public async Task<DriverReadResult> ReadAsync(
+            long position,
+            long maxBytes,
+            CancellationToken cancel = default(CancellationToken))
         {
             // STEP 1: PRELIMINARY CHECKS
             // ==========================
@@ -243,7 +256,7 @@ namespace Lokad.AzureEventStore.Drivers
             // STEP 2: IDENTIFY BLOB
             // =====================
 
-            CloudAppendBlob blob = null;
+            CloudBlob blob = null;
             long firstPosition = 0;
             long blobSize = 0;
 
@@ -253,7 +266,7 @@ namespace Lokad.AzureEventStore.Drivers
                 {
                     blob = _blobs[i];
                     firstPosition = _firstPosition[i];
-                    blobSize = (i == _blobs.Count - 1 ? _lastKnownPosition : _firstPosition[i+1]) - firstPosition;
+                    blobSize = (i == _blobs.Count - 1 ? _lastKnownPosition : _firstPosition[i + 1]) - firstPosition;
                     break;
                 }
             }
@@ -302,7 +315,7 @@ namespace Lokad.AzureEventStore.Drivers
                 }
             }
 
-            return new DriverReadResult(position + readBytes, events);            
+            return new DriverReadResult(position + readBytes, events);
         }
 
         /// <summary>
@@ -316,19 +329,19 @@ namespace Lokad.AzureEventStore.Drivers
         /// 
         ///     Returns the total size read.
         /// </remarks>
-        private async Task<int> ReadRangeAsync(CloudAppendBlob blob, long start, long maxBytes, CancellationToken cancel)
+        private async Task<int> ReadRangeAsync(CloudBlob blob, long start, long maxBytes, CancellationToken cancel)
         {
             // 512KB has been measured as a good slice size. A typical 4MB request is sliced into 8 pieces,
             // which are then downloaded in parallel.
-            const int maxSliceSize = 1024 * 512; 
-            
+            const int maxSliceSize = 1024 * 512;
+
             List<Task<int>> todo = null;
             var bufferStart = 0;
             while (maxBytes > 2 * maxSliceSize)
             {
                 todo = todo ?? new List<Task<int>>();
                 todo.Add(ReadSubRangeAsync(blob, _buffer, start, bufferStart, maxSliceSize, cancel));
-                
+
                 maxBytes -= maxSliceSize;
                 start += maxSliceSize;
                 bufferStart += maxSliceSize;
@@ -345,7 +358,7 @@ namespace Lokad.AzureEventStore.Drivers
                         throw new Exception($"Expected {maxSliceSize} bytes but got {t.Result}");
                 }
             }
-            
+
             return length;
         }
 
@@ -357,11 +370,11 @@ namespace Lokad.AzureEventStore.Drivers
         ///      not enough bytes in the blob.
         /// </returns>
         private static async Task<int> ReadSubRangeAsync(
-            CloudAppendBlob blob, 
-            byte[] buffer, 
-            long start, 
-            int bufferStart, 
-            long maxBytes, 
+            CloudBlob blob,
+            byte[] buffer,
+            long start,
+            int bufferStart,
+            long maxBytes,
             CancellationToken cancel)
         {
             while (true)
@@ -430,13 +443,103 @@ namespace Lokad.AzureEventStore.Drivers
 
             // No need for any clever optimization: the number of blobs is small, and the time spent
             // traversing the list is tiny compared to the Azure request costs.
-            for (var i = 1; i < _firstKey.Count; ++i)            
-                if (_firstKey[i] > key) 
+            for (var i = 1; i < _firstKey.Count; ++i)
+                if (_firstKey[i] > key)
                     return Math.Max(position, _firstPosition[i - 1]);
 
             // None of the _firstKey were after the key we are looking for: if it exists, it
             // must be in the last blob.
             return Math.Max(position, _firstPosition[_firstPosition.Count - 1]);
+        }
+
+        /// <summary> Becomes non-null if a compaction is currently being performed. </summary>
+        internal Task RunningCompaction { get; private set; }
+
+        /// <summary>
+        ///     If no compaction is currently running, perform a compaction by compressing all  
+        ///     blobs in <paramref name="blobs"/> (except the last one, which is still 
+        ///     incomplete and being appended to) into a single block blob with large blocks,
+        ///     to improve read performance.
+        ///     
+        ///     The running task is stored in <see cref="RunningCompaction"/>. 
+        /// </summary>
+        private void TriggerCompaction(IReadOnlyList<CloudBlob> blobs)
+        {
+            // Another compaction running.
+            if (RunningCompaction != null && !RunningCompaction.IsCompleted) return;
+
+            // Create a copy for local use, since the caller may mess it up. Only include
+            // finished blocks (the last block is unfinished and shouldn't be included).
+            blobs = blobs.Take(blobs.Count - 1).ToArray();
+
+            RunningCompaction = Task.Run(async () =>
+            {
+                // This function assumes that the container is writable. If it isn't, the
+                // write operations will throw and execution stops silently.
+                //
+                // This function doesn't need to assume that it is not running concurrently.
+                // If two invocations of the function attempt to the write the blob, the
+                // second one will throw, but the first one will have written a valid block
+                // beforehand, which is what really matters here.
+
+                var blobName = blobs[blobs.Count - 1].Name;
+
+                if (blobName.EndsWith(AzureHelpers.CompactSuffix))
+                    // Already a compact blob.
+                    return;
+
+                blobName = blobName + AzureHelpers.CompactSuffix;
+
+                var compactBlob = _container.GetBlockBlobReference(blobName);
+
+                // Building a block blob: write out several 4MB blocks which will
+                // be committed in the right order at the end.
+                var blocks = new List<string>();
+                var buffer = new byte[4 * 1024 * 1024];
+                var used = 0;
+
+                Task WriteBlockAsync()
+                {
+                    var uid = Guid.NewGuid().ToString("N");
+                    blocks.Add(uid);
+                    return compactBlob.PutBlockAsync(
+                        uid,
+                        new MemoryStream(buffer, 0, used, writable: false),
+                        Convert.ToBase64String(MD5.Create().ComputeHash(buffer, 0, used)));
+                }
+
+                foreach (var blob in blobs)
+                {
+                    var blobOffset = 0L;
+                    var blobLength = blob.Properties.Length;
+
+                    while (blobOffset < blobLength)
+                    {
+                        var read = await ReadSubRangeAsync(
+                            blob,
+                            buffer,
+                            blobOffset,
+                            used,
+                            Math.Min(buffer.Length - used, blobLength - blobOffset),
+                            CancellationToken.None);
+
+                        used += read;
+                        blobOffset += read;
+
+                        if (used == buffer.Length)
+                        {
+                            await WriteBlockAsync();
+                            used = 0;
+                        }
+                    }
+                }
+
+                if (used > 0)
+                    await WriteBlockAsync();
+
+                // Commit the list of blocks in one call.
+                await compactBlob.PutBlockListAsync(blocks);
+            });
         }
     }
 }
