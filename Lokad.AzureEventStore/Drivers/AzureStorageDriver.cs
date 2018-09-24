@@ -149,7 +149,7 @@ namespace Lokad.AzureEventStore.Drivers
         /// <summary> Creates a new blob (if it does not yet exist). </summary>
         private async Task CreateLastBlob(CancellationToken cancel)
         {
-            var nth = _blobs.Count;
+            var nth = _blobs.Count == 0 ? 0 : _blobs[_blobs.Count - 1].ParseNth() + 1;
             var blob = _container.ReferenceEventBlob(nth);
 
             await blob.CreateIfNotExistsAsync(cancel);

@@ -34,6 +34,26 @@ namespace Lokad.AzureEventStore.Drivers
         private static string NthBlobName(int nth, bool compact = false) =>
             Prefix + nth.ToString("D5") + (compact ? CompactSuffix : "");
 
+        /// <summary> Parse the numeric suffix in 'event.NNNNN' blob name. </summary>
+        public static int ParseNth(this CloudBlob blob) =>
+            ParseNth(blob.Name);
+
+        public static int ParseNth(string str)
+        {
+            if (str == "events.00000") 
+                return 0;
+
+            if (str.Length != "events.NNNNN".Length)
+                throw new ArgumentException($"Expected 'events.NNNNN' but found '{str}'", nameof(str));
+
+            var num = str.Substring("events.".Length).TrimStart('0');
+
+            if (!int.TryParse(num, out var nth))
+                throw new ArgumentException($"Expected 'events.NNNNN' but found '{num}' in '{str}'", nameof(str));
+
+            return nth;
+        }
+
         /// <summary> List all event blobs, in the correct order. </summary>
         public static async Task<List<CloudBlob>> ListEventBlobsAsync(
             this CloudBlobContainer container,
