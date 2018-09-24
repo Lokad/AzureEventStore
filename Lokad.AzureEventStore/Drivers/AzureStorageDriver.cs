@@ -72,6 +72,14 @@ namespace Lokad.AzureEventStore.Drivers
                 // Can benefit from compaction.
                 TriggerCompaction(newBlobs);
 
+            if (_blobs.Count > newBlobs.Count)
+            {
+                // A compaction has occurred, so all cached information is wrong.
+                _blobs.Clear();
+                _firstKey.Clear();
+                _firstPosition.Clear();
+            }
+
             // STEP 1: _firstPosition and _lastKnownPosition
             // =============================================
 
