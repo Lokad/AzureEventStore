@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Streams;
@@ -27,16 +29,24 @@ namespace Lokad.AzureEventStore.Tool
             { "peek", CmdPeek }
         };
 
+        private static readonly int READLINE_BUFFER_SIZE = 1024;
+
         static void Main()
         {
             Console.WriteLine("Azure Event Store - manipulation tool - v0.1");
 
             Console.ForegroundColor = ConsoleColor.White;
+
             Console.Write("> ");
 
             string line;
-            while ((line = Console.ReadLine()) != null)
+            Stream inputStream = Console.OpenStandardInput(READLINE_BUFFER_SIZE);
+            byte[] bytes = new byte[READLINE_BUFFER_SIZE];
+            int inputLength;
+
+            while ( (inputLength = inputStream.Read(bytes, 0, READLINE_BUFFER_SIZE)) != 0)
             {
+                line = new string(Encoding.Default.GetChars(bytes, 0, inputLength));
                 line = line.Trim();
                 if (string.Equals(line, "quit", StringComparison.OrdinalIgnoreCase)) return;
                 if (line == "")
