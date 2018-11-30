@@ -2,6 +2,7 @@
 using System.IO;
 using Lokad.AzureEventStore.Drivers;
 using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Lokad.AzureEventStore
 {
