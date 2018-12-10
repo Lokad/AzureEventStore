@@ -12,8 +12,7 @@
     <PackageVersion>1.0.0.0</PackageVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
-    <PackageReference Include="WindowsAzure.Storage" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="9.4.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
