@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
@@ -29,6 +30,11 @@ namespace Lokad.AzureEventStore.Tool
 
         static void Main()
         {
+            // Increase the 255 maximum number of characters of the ReadLine method
+            var bytes = new byte[2000];
+            var inputStream = Console.OpenStandardInput(bytes.Length);
+            Console.SetIn(new StreamReader(inputStream));
+
             Console.WriteLine("Azure Event Store - manipulation tool - v0.1");
 
             Console.ForegroundColor = ConsoleColor.White;
