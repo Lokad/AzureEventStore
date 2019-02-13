@@ -5,6 +5,7 @@ _Resharper*
 *.user
 *.build.csdef
 *.suo
+.vs
 csx
 Thumbs.db
 azure_connection.txt
