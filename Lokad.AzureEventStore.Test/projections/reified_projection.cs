@@ -169,6 +169,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 .Returns<Stream, CancellationToken>((s, c) =>
                 {
                     var bytes = new byte[4];
+                    Assert.AreEqual(0, s.Position);
                     s.Read(bytes, 0, 4);
                     return Task.FromResult(Encoding.UTF8.GetString(bytes)); 
                 });

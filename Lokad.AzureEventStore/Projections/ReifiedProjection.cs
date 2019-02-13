@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Lokad.AzureEventStore.Streams;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -152,8 +153,13 @@ namespace Lokad.AzureEventStore.Projections
 
                 _log?.Debug($"[{Name}] cache is at seq {seq}.");
 
+                // Create a new stream to hide the write of the sequence numbers
+                // (at the top and the bottom of the stream).
+                var boundedStream = new BoundedStream(source, source.Length - 8);
+
                 // Load the state, which advances the stream
-                var state = await _projection.TryLoadAsync(source, cancel).ConfigureAwait(false);
+                var state = await _projection.TryLoadAsync(boundedStream, cancel)
+                    .ConfigureAwait(false);
 
                 if (state == null)
                 {
