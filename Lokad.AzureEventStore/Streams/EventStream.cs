@@ -82,7 +82,7 @@ namespace Lokad.AzureEventStore.Streams
         /// <summary>
         /// <see cref="IEventStream{TEvent}.WriteAsync"/>
         /// </summary>
-        public async Task<uint?> WriteAsync(IReadOnlyList<TEvent> events, CancellationToken cancel = default(CancellationToken))
+        public async Task<uint?> WriteAsync(IReadOnlyList<TEvent> events, CancellationToken cancel = default)
         {
             if (events.Count == 0) return null;
             if (Position < _minimumWritePosition) return null;
@@ -139,7 +139,7 @@ namespace Lokad.AzureEventStore.Streams
             return _serializer.Deserialize(next.Contents);
         }
 
-        public async Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default)
         {
             const int maxBytes = 1024 * 1024 * 4;
             
@@ -164,7 +164,7 @@ namespace Lokad.AzureEventStore.Streams
         }
 
         /// <see cref="IEventStream.DiscardUpTo"/>
-        public async Task<uint> DiscardUpTo(uint sequence, CancellationToken cancel = default(CancellationToken))
+        public async Task<uint> DiscardUpTo(uint sequence, CancellationToken cancel = default)
         {
             // First, try to seek forward to skip over many events at once
             var skip = await Storage.SeekAsync(sequence, 0, cancel);

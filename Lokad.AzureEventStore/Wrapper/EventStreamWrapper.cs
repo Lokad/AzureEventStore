@@ -66,7 +66,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// Reads up events up to the last one available. Pre-loads the projection from its cache,
         /// if available, to reduce the necessary work.
         /// </summary>
-        public async Task InitializeAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task InitializeAsync(CancellationToken cancel = default)
         {
             var log = _log.Timestamped();
             await Catchup(_projection, Stream, cancel);
@@ -77,7 +77,11 @@ namespace Lokad.AzureEventStore.Wrapper
             log?.Info("[ES init] DONE !");
         }
 
-        internal static async Task Catchup(IReifiedProjection projection, IEventStream stream, CancellationToken cancel = default(CancellationToken), ILogAdapter log = null)
+        internal static async Task Catchup(
+            IReifiedProjection projection, 
+            IEventStream stream, 
+            CancellationToken cancel = default, 
+            ILogAdapter log = null)
         {
             try
             {
@@ -170,7 +174,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// Catch up with the stream (updating the state) until there are no new 
         /// events available.
         /// </summary>
-        public async Task CatchUpAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task CatchUpAsync(CancellationToken cancel = default)
         {
             Func<bool> finishFetch;
 
@@ -204,7 +208,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </remarks>
         public async Task<AppendResult<T>> AppendEventsAsync<T>(
             Func<TState, Append<TEvent, T>> builder, 
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             var thrownByBuilder = false;
 
@@ -258,11 +262,10 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </remarks>
         public async Task<AppendResult> AppendEventsAsync(
             Func<TState, Append<TEvent>> builder,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         =>
             await AppendEventsAsync(s => new Append<TEvent, bool>(builder(s), false), cancel)
                 .ConfigureAwait(false);
-
 
         /// <summary> Append events to the stream. </summary>
         /// <remarks> 
@@ -272,7 +275,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </remarks>
         public async Task<AppendResult> AppendEventsAsync(
             TEvent[] events,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         =>
             await AppendEventsAsync(s => new Append<TEvent, bool>(false, events), cancel);
 
@@ -282,10 +285,8 @@ namespace Lokad.AzureEventStore.Wrapper
         /// object (only an immutable copy of the state), so you do not need to 
         /// wait for this task to finish before starting another operation.
         /// </remarks>
-        public Task TrySaveAsync(CancellationToken cancel = default(CancellationToken))
-        {
-            return _projection.TrySaveAsync(cancel);
-        }
+        public Task TrySaveAsync(CancellationToken cancel = default) =>
+            _projection.TrySaveAsync(cancel);
 
         /// <summary> Reset the wrapper. Used when it is necessary to try again. </summary>
         public void Reset()

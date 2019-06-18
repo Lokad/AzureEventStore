@@ -74,11 +74,10 @@ namespace Lokad.AzureEventStore
             IProjectionCacheProvider projectionCache,
             ILogAdapter log,
             CancellationToken cancel)
-        {
-            return new EventStreamService<TEvent, TState>(
+        =>
+            new EventStreamService<TEvent, TState>(
                 storage, projections, projectionCache, log, cancel);
-        }
-
+        
         /// <remarks>
         ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
         ///     that background tasks are being creatd.
@@ -164,7 +163,7 @@ namespace Lokad.AzureEventStore
                     await Task.Delay(TimeSpan.FromSeconds(RefreshPeriod/2), _cancel);
                     
                     if (syncStep == Wrapper.SyncStep)
-                        await CatchUpAsync(default(CancellationToken));
+                        await CatchUpAsync(default);
                 }
 
             }, _cancel);
@@ -206,8 +205,8 @@ namespace Lokad.AzureEventStore
 
             // This will store the result of the action
             var tcs = new TaskCompletionSource<T>();
-            
-            Func<Task> func = async () =>
+
+            async Task Wrapper()
             {
                 // Combine service-level cancellation with action-level cancellation
                 using (var cts = new CancellationTokenSource())
@@ -229,9 +228,9 @@ namespace Lokad.AzureEventStore
                         tcs.TrySetException(e);
                     }
                 }
-            };
+            }
 
-            _pending.Enqueue(func);
+            _pending.Enqueue(Wrapper);
 
             return tcs.Task;
         }
@@ -329,12 +328,12 @@ namespace Lokad.AzureEventStore
         /// </remarks>
         public Task<AppendResult> AppendEventsAsync(
             TEvent[] events,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         =>
             EnqueueAction(c => Wrapper.AppendEventsAsync(events, c), cancel);
         
         /// <summary> Attempt to save the projection to the cache. </summary>
-        public Task TrySaveAsync(CancellationToken cancel = default(CancellationToken)) =>
+        public Task TrySaveAsync(CancellationToken cancel = default) =>
             Wrapper.TrySaveAsync(cancel);
     }
 }

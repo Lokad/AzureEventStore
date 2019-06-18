@@ -157,7 +157,10 @@ namespace Lokad.AzureEventStore.Drivers
             await RefreshCache(cancel);
         }
 
-        public async Task<DriverWriteResult> WriteAsync(long position, IEnumerable<RawEvent> events, CancellationToken cancel = new CancellationToken())
+        public async Task<DriverWriteResult> WriteAsync(
+            long position, 
+            IEnumerable<RawEvent> events, 
+            CancellationToken cancel = default)
         {
             // Caller knows something we don't? Refresh!
             if (position > _lastKnownPosition)
@@ -244,7 +247,7 @@ namespace Lokad.AzureEventStore.Drivers
         public async Task<DriverReadResult> ReadAsync(
             long position,
             long maxBytes,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             // STEP 1: PRELIMINARY CHECKS
             // ==========================
@@ -411,7 +414,7 @@ namespace Lokad.AzureEventStore.Drivers
             }
         }
 
-        public async Task<uint> GetLastKeyAsync(CancellationToken cancel = new CancellationToken())
+        public async Task<uint> GetLastKeyAsync(CancellationToken cancel = default)
         {
             // We need to look into the last blob, so we need to list all blobs first
             await RefreshCache(cancel);
@@ -496,7 +499,7 @@ namespace Lokad.AzureEventStore.Drivers
                     // Already a compact blob.
                     return;
 
-                blobName = blobName + AzureHelpers.CompactSuffix;
+                blobName += AzureHelpers.CompactSuffix;
 
                 var compactBlob = _container.GetBlockBlobReference(blobName);
 
