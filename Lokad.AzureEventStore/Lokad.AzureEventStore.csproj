@@ -6,17 +6,18 @@
     <OutputType>Library</OutputType>
     <Company>Lokad</Company>
     <Copyright>Copyright © Lokad 2019</Copyright>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <FileVersion>2.1.0.0</FileVersion>
+    <AssemblyVersion>2.1.1.0</AssemblyVersion>
+    <FileVersion>2.1.1.0</FileVersion>
     <PackageId>Lokad.AzureEventStore</PackageId>
-    <PackageVersion>2.1.0.0</PackageVersion>
+    <PackageVersion>2.1.1.0</PackageVersion>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>Lokad</Authors>
     <Description>Simple, low-maintenance event sourcing backed by Azure Blob Storage.</Description>
-    <PackageLicenseUrl>https://github.com/Lokad/AzureEventStore/blob/master/LICENSE.txt</PackageLicenseUrl>
+    <PackageLicenseUrl></PackageLicenseUrl>
     <PackageProjectUrl>https://github.com/Lokad/AzureEventStore</PackageProjectUrl>
     <PackageIconUrl>https://raw.githubusercontent.com/Lokad/AzureEventStore/master/lokad.png</PackageIconUrl>
-    <Version>2.1.0</Version>
+    <Version>2.1.1</Version>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)'=='netstandard1.6'">
     <PackageReference Include="System.Diagnostics.Contracts" Version="4.3.0" />
@@ -25,5 +26,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="9.4.1" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\LICENSE.txt">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
   </ItemGroup>
 </Project>
