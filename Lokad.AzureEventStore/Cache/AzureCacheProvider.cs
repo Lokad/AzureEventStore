@@ -19,10 +19,19 @@ namespace Lokad.AzureEventStore.Cache
         private readonly CloudBlobContainer _container;
         private readonly bool _useStateCache;
 
-        public AzureCacheProvider(CloudBlobContainer container, bool useStateCache)
+        /// <summary> If this number of blobs is present in the cache, clear the oldest ones. </summary>
+        /// <remarks>
+        ///     This number should be at least as large as the number of instances that can
+        ///     start simultaneously (as instance N may delete the blob still being read from by instance 
+        ///     N - Max).
+        /// </remarks>
+        public int MaxCacheBlobsCount;
+
+        public AzureCacheProvider(CloudBlobContainer container, bool useStateCache, int maxCacheBlobs = 100)
         {
             _container = container;
             _useStateCache = useStateCache;
+            MaxCacheBlobsCount = maxCacheBlobs;
         }
 
         private async Task<CloudBlockBlob[]> Blobs(string fullname)
@@ -79,11 +88,18 @@ namespace Lokad.AzureEventStore.Cache
                 return null;
 
             // Clean-up the old and deprecated versions of the cache
-            if (all.Length > 3)
+            if (all.Length > MaxCacheBlobsCount)
             {
-                for (var i = 0; i < all.Length - 3; ++i)
+                for (var i = 0; i < all.Length - MaxCacheBlobsCount; ++i)
                 {
-                    await _container.GetBlockBlobReference(all[i].Name).DeleteAsync();
+                    try
+                    {
+                        await _container.GetBlockBlobReference(all[i].Name).DeleteAsync();
+                    }
+                    catch
+                    {
+                        // It's not a problem if deletion failed.
+                    }
                 }
             }
 
