@@ -256,13 +256,13 @@ namespace Lokad.AzureEventStore.Wrapper
         /// Builder returns array of events to be appended. It may be called more than
         /// once. 
         /// </remarks>
-        public Task<AppendResult> AppendEventsAsync(
+        public async Task<AppendResult> AppendEventsAsync(
             Func<TState, Append<TEvent>> builder,
             CancellationToken cancel = default(CancellationToken))
-        {
-            return AppendEventsAsync(s => new Append<TEvent, bool>(builder(s), false), cancel)
-                .ContinueWith(t => (AppendResult)t.Result, cancel);
-        }
+        =>
+            await AppendEventsAsync(s => new Append<TEvent, bool>(builder(s), false), cancel)
+                .ConfigureAwait(false);
+
 
         /// <summary> Append events to the stream. </summary>
         /// <remarks> 
@@ -270,13 +270,11 @@ namespace Lokad.AzureEventStore.Wrapper
         /// regardless of state (this can lead to duplicates in multi-writer scenarios, 
         /// and so on). Make sure you know what you're doing. 
         /// </remarks>
-        public Task<AppendResult> AppendEventsAsync(
+        public async Task<AppendResult> AppendEventsAsync(
             TEvent[] events,
             CancellationToken cancel = default(CancellationToken))
-        {
-            return AppendEventsAsync(s => new Append<TEvent, bool>(false, events), cancel)
-                .ContinueWith(t => (AppendResult)t.Result, cancel);
-        }
+        =>
+            await AppendEventsAsync(s => new Append<TEvent, bool>(false, events), cancel);
 
         /// <summary> Attempt to save the projection to the cache. </summary>
         /// <remarks> 
