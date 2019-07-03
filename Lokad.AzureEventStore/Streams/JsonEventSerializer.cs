@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -37,7 +36,7 @@ namespace Lokad.AzureEventStore.Streams
             var tEvent = typeof (TEvent);
 
             // Special case: if TEvent == JObject, no additional type serialization 
-            // is required. Otherwise, list all instantiable, serializable implementing types.
+            // is required. Otherwise, list all instantiable types that implement the event interface.
             if (tEvent != typeof (JObject))
             {
                 var tEventInfo = tEvent.GetTypeInfo();
@@ -46,8 +45,7 @@ namespace Lokad.AzureEventStore.Streams
                         var tInfo = t.GetTypeInfo();
                         return tInfo.IsClass &&
                                !tInfo.IsAbstract &&
-                               tEventInfo.IsAssignableFrom(tInfo) &&
-                               tInfo.GetCustomAttribute<DataContractAttribute>() != null;
+                               tEventInfo.IsAssignableFrom(tInfo);
                     }));
             }
 
