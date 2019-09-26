@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using ExampleProject.Events;
 using Lokad.AzureEventStore;
 
@@ -11,7 +12,7 @@ namespace ExampleProject
         public const string AccountKey = "";
         public const string ConnectionString = @"DefaultEndpointsProtocol=https;AccountName=" + AccountName + ";AccountKey=" + AccountKey + ";Container=exampleproject";
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             var config = new StorageConfiguration(ConnectionString);
 
@@ -53,7 +54,7 @@ namespace ExampleProject
                 {
                     // Append either an update or a deletion event for each word in the
                     // provided sentence, then display the new count for that word.
-                    var newCount = svc.AppendEventsAsync(s =>
+                    var newCount = (await svc.AppendEventsAsync(s =>
                     {
                         // Look at the current count (and whether the word exists)
                         var exists = s.Bindings.TryGetValue(word, out int currentCount);
@@ -68,7 +69,7 @@ namespace ExampleProject
                         // Incrementing the entry
                         return svc.With(currentCount + 1, new ValueUpdated(word, currentCount + 1));
 
-                    }, CancellationToken.None).Result.More;
+                    }, CancellationToken.None)).More;
 
                     Console.WriteLine("{0} -> {1}", word, newCount);
                 }

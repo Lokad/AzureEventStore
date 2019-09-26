@@ -15,7 +15,7 @@ namespace Lokad.AzureEventStore.Wrapper
     /// projections.
     /// </summary>
     internal sealed class EventStreamWrapper<TEvent, TState> where TState : class where TEvent : class
-    {        
+    {
         /// <summary> The projections that keep the state.  </summary>
         private readonly ReifiedProjectionGroup<TEvent, TState> _projection;
 
@@ -28,9 +28,12 @@ namespace Lokad.AzureEventStore.Wrapper
         /// <summary> Logging status messages. </summary>
         private readonly ILogAdapter _log;
 
+        /// <see cref="SyncStep"/>
+        private int _syncStep;
+
         public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
             : this(storage.Connect(), projections, projectionCache, log)
-        {}
+        { }
 
         internal EventStreamWrapper(IStorageDriver storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
         {
@@ -38,8 +41,6 @@ namespace Lokad.AzureEventStore.Wrapper
             Stream = new EventStream<TEvent>(storage, log);
             _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCache, log);
         }
-
-
 
         /// <summary> The current synchronization step. </summary>
         /// <remarks>
@@ -52,7 +53,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// taken into account. This can be used to implement "is up-to-date" 
         /// requirements on the state.  
         /// </remarks>
-        public uint SyncStep { get; private set; }
+        public int SyncStep => _syncStep;
 
         /// <summary> The current state. </summary>
         public TState Current => _projection.Current;
@@ -78,9 +79,9 @@ namespace Lokad.AzureEventStore.Wrapper
         }
 
         internal static async Task Catchup(
-            IReifiedProjection projection, 
-            IEventStream stream, 
-            CancellationToken cancel = default, 
+            IReifiedProjection projection,
+            IEventStream stream,
+            CancellationToken cancel = default,
             ILogAdapter log = null)
         {
             try
@@ -197,7 +198,7 @@ namespace Lokad.AzureEventStore.Wrapper
             // We reach this point if 1° all events cached in the stream have
             // been processed and 2° the fetch operation returned no new events
 
-            SyncStep++;
+            Interlocked.Increment(ref _syncStep);
         }
 
         /// <summary> Append events, constructed from the state, to the stream. </summary>
@@ -207,7 +208,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// once. 
         /// </remarks>
         public async Task<AppendResult<T>> AppendEventsAsync<T>(
-            Func<TState, Append<TEvent, T>> builder, 
+            Func<TState, Append<TEvent, T>> builder,
             CancellationToken cancel = default)
         {
             var thrownByBuilder = false;
@@ -237,8 +238,8 @@ namespace Lokad.AzureEventStore.Wrapper
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
                         CatchUpLocal();
-                        SyncStep++;
-                        return new AppendResult<T>(tuple.Events.Count, (uint) done, tuple.Result);
+                        Interlocked.Increment(ref _syncStep);
+                        return new AppendResult<T>(tuple.Events.Count, (uint)done, tuple.Result);
                     }
                 }
             }

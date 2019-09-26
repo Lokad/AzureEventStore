@@ -14,7 +14,8 @@ namespace Lokad.AzureEventStore
     /// Connects to a stream and keeps the projected state up-to-date
     /// automatically. Support appending new events. 
     /// </summary>
-    public sealed class EventStreamService<TEvent,TState> where TEvent : class where TState : class
+    public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>> 
+        where TEvent : class where TState : class
     {
         /// <summary> Exception thrown during stream initialization. </summary>
         private Exception _initFailure;
@@ -56,8 +57,6 @@ namespace Lokad.AzureEventStore
 
         private readonly CancellationToken _cancel;
 
-        private readonly AsyncQueue<Func<Task>> _pending = new AsyncQueue<Func<Task>>();         
-        
         /// <summary> Initialize and start the service. </summary>
         /// <remarks> 
         /// This will start a background task that performs all processing
@@ -87,7 +86,7 @@ namespace Lokad.AzureEventStore
             IEnumerable<IProjection<TEvent>> projections,
             IProjectionCacheProvider projectionCache,
             ILogAdapter log,
-            CancellationToken cancel)
+            CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
         {
             _log = log;
             _cancel = cancel;
@@ -95,7 +94,6 @@ namespace Lokad.AzureEventStore
             Quarantine = Wrapper.Quarantine;
 
             Ready = Task.Run(Initialize, cancel);
-            Task.Run(Loop, cancel);            
         }
 
         #region Concurrency boilerplate
@@ -126,59 +124,30 @@ namespace Lokad.AzureEventStore
             }
         }
 
-        /// <summary> Loop forever (or at least, until it's done). </summary>
-        /// <remarks> Any exceptions thrown are passed to the exception callback. </remarks>
-        private async Task Loop()
+        protected override async Task RunAsync(IReadOnlyList<Func<Task>> messages)
         {
-            // Wait for initialization to finish and check success.
-            try
+            if (!IsReady)
+                // Do not do anything until the stream has finished loading.
+                return;
+
+            if (messages.Count == 0)
             {
-                await Ready.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception e)
-            {
-                _log?.Error("While waiting to catch up with event stream.", e);
+                // We woke up because of our periodic wake-up, so perform a catch-up and
+                // go back to sleep.
+                await Wrapper.CatchUpAsync(default).ConfigureAwait(false);
                 return;
             }
 
-            // The auto-refresh process
-            // ========================
-
-            // This is a background task that checks periodically whether
-            // a synchronization with the remote stream has occurred. If 
-            // it has not, it performs one.
-
-#pragma warning disable CS4014 
-            Task.Run(async () =>
+            foreach (var msg in messages)
             {
-                while (!_cancel.IsCancellationRequested)
+                try
                 {
-                    var syncStep = Wrapper.SyncStep;
-                    
-                    // RefreshPeriod/2 because it's possible to have a 
-                    // syncStep increment happen right before this 'await',
-                    // in which case the delay will execute twice before
-                    // it detects that no sync is happening.
-                    await Task.Delay(TimeSpan.FromSeconds(RefreshPeriod/2), _cancel);
-                    
-                    if (syncStep == Wrapper.SyncStep)
-                        await CatchUpAsync(default);
+                    await msg().ConfigureAwait(false);
                 }
-
-            }, _cancel);
-#pragma warning restore CS4014 
-
-            // The actual loop
-            // ===============
-
-            while (!_cancel.IsCancellationRequested)
-            {   
-                // This sleeps until an action becomes available in the queue
-                var nextAction = await _pending.Dequeue(_cancel).ConfigureAwait(false);
-
-                // The action does not throw (is it wrapped properly)
-                await nextAction().ConfigureAwait(false);
+                catch
+                {
+                    // TODO: log this
+                }
             }
         }
 
@@ -186,10 +155,15 @@ namespace Lokad.AzureEventStore
         /// The <see cref="LocalState"/> many not lag behind the <see cref="CurrentState"/>
         /// longer than this many seconds. 
         /// </summary>
-        /// <remarks>
-        /// In practice, even in the absence of any other activity, the 
-        /// </remarks>
-        public double RefreshPeriod { get; set; } = 60;
+        public double RefreshPeriod
+        {
+            // Period * 2 because it's possible to have a 
+            // syncStep increment happen right before this 'await',
+            // in which case the delay will execute twice before
+            // it detects that no sync is happening.
+            get => Period.TotalSeconds * 2;
+            set => Period = TimeSpan.FromSeconds(value / 2);
+        }
 
         /// <summary>
         /// Enqueues an asynchronous action, which will be performed after all currently
@@ -204,7 +178,7 @@ namespace Lokad.AzureEventStore
             if (!IsReady) throw new StreamNotReadyException();
 
             // This will store the result of the action
-            var tcs = new TaskCompletionSource<T>();
+            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             async Task Wrapper()
             {
@@ -230,7 +204,7 @@ namespace Lokad.AzureEventStore
                 }
             }
 
-            _pending.Enqueue(Wrapper);
+            Post(Wrapper);
 
             return tcs.Task;
         }

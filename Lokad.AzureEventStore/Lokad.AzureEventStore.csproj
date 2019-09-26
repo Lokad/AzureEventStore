@@ -1,22 +1,22 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>netstandard1.6;net462;net452</TargetFrameworks>
+    <TargetFrameworks>netstandard1.6;net462</TargetFrameworks>
     <AssemblyName>Lokad.AzureEventStore</AssemblyName>
     <RuntimeIdentifiers>win</RuntimeIdentifiers>
     <OutputType>Library</OutputType>
     <Company>Lokad</Company>
     <Copyright>Copyright © Lokad 2019</Copyright>
-    <AssemblyVersion>3.0.0.0</AssemblyVersion>
-    <FileVersion>3.0.0.0</FileVersion>
+    <AssemblyVersion>3.0.2.0</AssemblyVersion>
+    <FileVersion>3.0.2.0</FileVersion>
     <PackageId>Lokad.AzureEventStore</PackageId>
-    <PackageVersion>3.0.0.0</PackageVersion>
+    <PackageVersion>3.0.2.0</PackageVersion>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>Lokad</Authors>
     <Description>Simple, low-maintenance event sourcing backed by Azure Blob Storage.</Description>
     <PackageLicenseUrl></PackageLicenseUrl>
     <PackageProjectUrl>https://github.com/Lokad/AzureEventStore</PackageProjectUrl>
     <PackageIconUrl>https://raw.githubusercontent.com/Lokad/AzureEventStore/master/lokad.png</PackageIconUrl>
-    <Version>3.0.0</Version>
+    <Version>3.0.2</Version>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)'=='netstandard1.6'">
