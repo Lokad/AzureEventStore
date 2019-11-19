@@ -33,6 +33,8 @@ namespace ExampleProject
                 // This cancellation token stops the background process.
                 cancel: cts.Token);
 
+            svc.RefreshPeriod = 10 * 60;
+
             while (true)
             {
                 var line = Console.ReadLine();
@@ -43,6 +45,17 @@ namespace ExampleProject
                     // The service starts catching up with the stream. This may
                     // take a short while if the stream becomes very long.
                     Console.WriteLine("Service not ready, please wait.");
+                    continue;
+                }
+
+                if (line == "")
+                {
+                    var state = await svc.CurrentState(default);
+
+                    foreach (var kv in state.Bindings)
+                    {
+                        Console.WriteLine("{0} -> {1}", kv.Key, kv.Value);
+                    }
                     continue;
                 }
 

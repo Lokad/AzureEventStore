@@ -28,9 +28,6 @@ namespace Lokad.AzureEventStore.Wrapper
         /// <summary> Logging status messages. </summary>
         private readonly ILogAdapter _log;
 
-        /// <see cref="SyncStep"/>
-        private int _syncStep;
-
         public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
             : this(storage.Connect(), projections, projectionCache, log)
         { }
@@ -42,18 +39,50 @@ namespace Lokad.AzureEventStore.Wrapper
             _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCache, log);
         }
 
-        /// <summary> The current synchronization step. </summary>
-        /// <remarks>
-        /// Incremented each time <see cref="Current"/> catches up with the 
-        /// remote stream (or when a read attempt concludes that there is
-        /// nothing to catch up with).
-        /// 
-        /// If this property has e.g. value 14 now, and had value 13 at time T, then 
-        /// all the events present on the remote stream up to time T are currently
-        /// taken into account. This can be used to implement "is up-to-date" 
-        /// requirements on the state.  
+        /// <summary> A task that will complete when the state is refreshed. </summary>
+        /// <remarks> 
+        ///     Return value is irrelevant - the state should always be pulled 
+        ///     from <see cref="Current"/>.
+        ///     
+        ///     If null, no one is currently waiting for the state to be refreshed.
         /// </remarks>
-        public int SyncStep => _syncStep;
+        private TaskCompletionSource<bool> _waitForState;
+
+        /// <summary> Is someone waiting for state the state to be refreshed ? </summary>
+        /// <remarks> 
+        ///     Equivalent to asking if there are calls to <see cref="WaitForState"/>
+        ///     that have not completed yet.
+        /// </remarks>
+        public bool WaitingForState => _waitForState != null;
+
+        /// <summary>
+        ///     Waits for the next time that the system catches up to the last event 
+        ///     in the state (either because of a successful write, or because of 
+        ///     <see cref="CatchUpAsync"/> completing. 
+        /// </summary>
+        public Task WaitForState()
+        {
+            if (_waitForState == null)
+            {
+                _waitForState = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            return _waitForState.Task;
+        }
+
+        /// <summary>
+        ///     Causes all uncompleted tasks returned by <see cref="WaitForState"/>
+        ///     to complete.
+        /// </summary>
+        private void NotifyRefresh()
+        {
+            if (_waitForState != null)
+            {
+                _waitForState.TrySetResult(true);
+                _waitForState = null;
+            }
+        }
 
         /// <summary> The current state. </summary>
         public TState Current => _projection.Current;
@@ -198,7 +227,7 @@ namespace Lokad.AzureEventStore.Wrapper
             // We reach this point if 1° all events cached in the stream have
             // been processed and 2° the fetch operation returned no new events
 
-            Interlocked.Increment(ref _syncStep);
+            NotifyRefresh();
         }
 
         /// <summary> Append events, constructed from the state, to the stream. </summary>
@@ -238,7 +267,7 @@ namespace Lokad.AzureEventStore.Wrapper
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
                         CatchUpLocal();
-                        Interlocked.Increment(ref _syncStep);
+                        NotifyRefresh();
                         return new AppendResult<T>(tuple.Events.Count, (uint)done, tuple.Result);
                     }
                 }

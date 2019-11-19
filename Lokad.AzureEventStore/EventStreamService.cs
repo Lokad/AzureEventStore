@@ -130,13 +130,10 @@ namespace Lokad.AzureEventStore
                 // Do not do anything until the stream has finished loading.
                 return;
 
-            if (messages.Count == 0)
-            {
-                // We woke up because of our periodic wake-up, so perform a catch-up and
-                // go back to sleep.
-                await Wrapper.CatchUpAsync(default).ConfigureAwait(false);
-                return;
-            }
+            // Every time we wake up, we expect the wrapper to refresh itself, either
+            // as a consequence of one of the messages (i.e. a write) or because it
+            // detects that a state refresh was requested.
+            var _ = Wrapper.WaitForState();
 
             foreach (var msg in messages)
             {
@@ -149,6 +146,11 @@ namespace Lokad.AzureEventStore
                     // TODO: log this
                 }
             }
+
+            // If someone asked for a refresh, and it has not been satisfied by the 
+            // above messages, perform a refresh automatically.
+            if (Wrapper.WaitingForState)
+                await Wrapper.CatchUpAsync(_cancel).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -157,22 +159,14 @@ namespace Lokad.AzureEventStore
         /// </summary>
         public double RefreshPeriod
         {
-            // Period * 2 because it's possible to have a 
-            // syncStep increment happen right before this 'await',
-            // in which case the delay will execute twice before
-            // it detects that no sync is happening.
-            get => Period.TotalSeconds * 2;
-            set => Period = TimeSpan.FromSeconds(value / 2);
+            get => Period.TotalSeconds;
+            set => Period = TimeSpan.FromSeconds(value);
         }
 
         /// <summary>
-        /// Enqueues an asynchronous action, which will be performed after all currently
-        /// queued actions.
+        ///     Enqueues an asynchronous action, which will be performed after all currently
+        ///     queued actions.
         /// </summary>
-        /// <remarks>
-        /// It is assumed that all enqueued actions will query the current stream state, 
-        /// either by attempting a write or by performing catch-up.
-        /// </remarks>
         private Task<T> EnqueueAction<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancel)
         {
             if (!IsReady) throw new StreamNotReadyException();
@@ -226,19 +220,21 @@ namespace Lokad.AzureEventStore
         /// The returned state includes all events written to the remote stream
         /// until the moment this function is called.
         /// </remarks>
-        public Task<TState> CurrentState(CancellationToken cancel)
+        public async Task<TState> CurrentState(CancellationToken cancel)
         {
             if (!IsReady) throw new StreamNotReadyException();
 
-            var syncStep = Wrapper.SyncStep;
-            return EnqueueAction(async c =>
-            {
-                if (syncStep == Wrapper.SyncStep)
-                    await Wrapper.CatchUpAsync(c).ConfigureAwait(false);
+            // We wrap the `WaitForState` task in an outer task, because `EnqueueAction`
+            // causes the background loop to wait for the result of the function---and
+            // the `WaitForState` task relies on the background loop to become completed,
+            // so the background loop waiting for it would result in a deadlock !
+            var task = await EnqueueAction(c => Task.FromResult(Wrapper.WaitForState()), cancel)
+                .ConfigureAwait(false);
 
-                return Wrapper.Current;
+            // This waits for the background loop to, somehow, complete a refresh.
+            await task.ConfigureAwait(false);
 
-            }, cancel);
+            return Wrapper.Current;
         }
 
         /// <summary> Retrieve the local state. </summary>
