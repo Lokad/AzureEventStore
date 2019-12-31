@@ -99,7 +99,7 @@ namespace Lokad.AzureEventStore.Wrapper
         public async Task InitializeAsync(CancellationToken cancel = default)
         {
             var log = _log.Timestamped();
-            await Catchup(_projection, Stream, cancel);
+            await Catchup(_projection, Stream, cancel, log).ConfigureAwait(false);
 
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
