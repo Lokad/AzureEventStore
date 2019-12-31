@@ -36,7 +36,8 @@ namespace Lokad.AzureEventStore.Cache
 
         private async Task<CloudBlockBlob[]> Blobs(string fullname)
         {
-            await _container.CreateIfNotExistsAsync();
+            if (!await _container.ExistsAsync().ConfigureAwait(false))
+                await _container.CreateIfNotExistsAsync().ConfigureAwait(false);
 
             var result = new List<CloudBlockBlob>();
 
