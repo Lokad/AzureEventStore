@@ -36,8 +36,12 @@ namespace Lokad.AzureEventStore.Cache
 
         private async Task<CloudBlockBlob[]> Blobs(string fullname)
         {
+            // _container.CreateIfNotExists() implies a permission check that raises
+            // an exception if the caller does not have right access to the container.
+            // In order to allow callers to benefit from an existing cache even with
+            // read-only access, we attempt the creation only if it is actually necessary.
             if (!await _container.ExistsAsync().ConfigureAwait(false))
-                await _container.CreateIfNotExistsAsync().ConfigureAwait(false);
+                await _container.CreateAsync().ConfigureAwait(false);
 
             var result = new List<CloudBlockBlob>();
 
