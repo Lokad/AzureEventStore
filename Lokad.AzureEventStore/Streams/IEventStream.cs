@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,6 +75,31 @@ namespace Lokad.AzureEventStore.Streams
 
     public static class Extensions
     {
+
+#if NETSTANDARD2_1
+
+        /// <summary>
+        ///     Enumerates all remaining events in the stream, as an async-enumerable.
+        ///     Stops when the end of the stream is reached.
+        /// </summary>
+        public static async IAsyncEnumerable<(uint seq, TEvent ev)> Events<TEvent>(
+            this IEventStream<TEvent> es,
+            [EnumeratorCancellation] CancellationToken cancel)
+        {
+            Func<bool> more;
+            do
+            {
+                var moreTask = es.BackgroundFetchAsync(cancel);
+
+                while (es.TryGetNext() is TEvent e)
+                    yield return (es.Sequence, e);
+
+                more = await moreTask.ConfigureAwait(false);
+            }
+            while (more());
+        }
+#endif
+
         /// <summary>
         /// Attempts to fetch events from the remote stream, making them available to
         /// <see cref="IEventStream{TEvent}.TryGetNext"/>.
