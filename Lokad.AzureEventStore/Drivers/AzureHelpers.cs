@@ -54,10 +54,48 @@ namespace Lokad.AzureEventStore.Drivers
             return nth;
         }
 
+        /// <summary>
+        ///     Retry an operation without side-effects, if it was 1. interrupted by 
+        ///     a HTTP 500 error or 2. took longer than 10 seconds (this can happen when 
+        ///     Azure Blob Storage 'loses' a request and takes up to several minutes to 
+        ///     fail it, in which case an immediate retry usually succeeds).
+        /// </summary>
+        public static async Task<T> RetryAsync<T>(
+            CancellationToken cancel,
+            Func<CancellationToken, Task<T>> retried)
+        {
+            for (var retry = 5;; --retry)
+            {
+                using (var delay = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+                {
+                    using (var race = CancellationTokenSource.CreateLinkedTokenSource(delay.Token, cancel))
+                    {
+                        try
+                        {
+                            return await retried(race.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                            when (!cancel.IsCancellationRequested && retry > 0)
+                        {
+                            // Cancellation due to 'delay' or internal timeout, 
+                            // not the original 'cancel'
+                            continue;
+                        }
+                        catch (StorageException e)
+                            when (e.RequestInformation.HttpStatusCode >= 500 && retry > 0)
+                        {
+                            // Cancellation due to HTTP 500
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
         /// <summary> List all event blobs, in the correct order. </summary>
         public static async Task<List<CloudBlob>> ListEventBlobsAsync(
             this CloudBlobContainer container,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             var freshBlobList = new List<CloudBlob>();
             var token = new BlobContinuationToken();
@@ -106,7 +144,7 @@ namespace Lokad.AzureEventStore.Drivers
         /// <summary> Creates the blob if it does not exist. Do nothing if it already does.  </summary>
         public static async Task CreateIfNotExistsAsync(
             this CloudAppendBlob blob,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             try
             {
@@ -140,7 +178,7 @@ namespace Lokad.AzureEventStore.Drivers
             this CloudAppendBlob blob,
             byte[] data,
             long position,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             return blob.AppendFromByteArrayAsync(
                 accessCondition: new AccessCondition {IfAppendPositionEqual = position},

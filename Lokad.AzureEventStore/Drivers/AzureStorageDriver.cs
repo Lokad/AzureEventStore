@@ -62,7 +62,7 @@ namespace Lokad.AzureEventStore.Drivers
         {
             // Download the complete list of blobs from the server. It's easier to 
             // perform processing in-memory rather than streaming through the listing.
-            var newBlobs = await _container.ListEventBlobsAsync(cancel);
+            var newBlobs = await AzureHelpers.RetryAsync(cancel, _container.ListEventBlobsAsync);
 
             if (newBlobs.Count == 0)
                 // This is an empty stream.
@@ -392,15 +392,16 @@ namespace Lokad.AzureEventStore.Drivers
             {
                 try
                 {
-                    return await blob.DownloadRangeToByteArrayAsync(
-                        buffer,
-                        bufferStart,
-                        start,
-                        maxBytes,
-                        new AccessCondition(),
-                        new BlobRequestOptions(),
-                        new OperationContext(),
-                        cancel);
+                    return await AzureHelpers.RetryAsync(cancel, c => 
+                        blob.DownloadRangeToByteArrayAsync(
+                            buffer,
+                            bufferStart,
+                            start,
+                            maxBytes,
+                            new AccessCondition(),
+                            new BlobRequestOptions(),
+                            new OperationContext(),
+                            c));
                 }
                 catch (StorageException e) when (e.Message.StartsWith("Incorrect number of bytes received."))
                 {
