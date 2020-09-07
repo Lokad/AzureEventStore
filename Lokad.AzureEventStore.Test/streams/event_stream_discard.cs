@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Streams;
 using Newtonsoft.Json;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.streams
 {
@@ -38,7 +38,6 @@ namespace Lokad.AzureEventStore.Test.streams
         public List<string> LargeContent { get; set; }
     }
 
-    [TestFixture]
     public class event_stream_discard
     {
         private IStorageDriver storeWithLargeEvents;
@@ -108,8 +107,8 @@ namespace Lokad.AzureEventStore.Test.streams
             var returnedSequence = await stream.DiscardUpTo(requestedSeq);
             var expectedSequence = ExpectedSequenceAfterDiscard(lastEvent, requestedSeq);
 
-            Assert.AreEqual(expectedSequence, stream.Sequence);
-            Assert.AreEqual(returnedSequence, stream.Sequence);
+            Assert.Equal(expectedSequence, stream.Sequence);
+            Assert.Equal(returnedSequence, stream.Sequence);
 
             if (requestedSeq == 0)
             {
@@ -120,12 +119,12 @@ namespace Lokad.AzureEventStore.Test.streams
             var nextEvt = await stream.TryGetNextAsync();
             if (requestedSeq <= lastEvent)
             {
-                Assert.IsNotNull(nextEvt);
-                Assert.AreEqual(requestedSeq, nextEvt.IntSeq);
+                Assert.NotNull(nextEvt);
+                Assert.Equal(requestedSeq, (uint)nextEvt.IntSeq);
             }
             else
             {
-                Assert.IsNull(nextEvt);
+                Assert.Null(nextEvt);
             }
         }
 
@@ -137,87 +136,87 @@ namespace Lokad.AzureEventStore.Test.streams
         }
 
         #region DiscardUpTo only
-        [Test]
+        [Fact]
         public async Task discard_zero()
         {
             await DiscardAndAssert(0);
         }
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_first() // that is to say, discard nothing (there is nothing before event 1)
             => await DiscardAndAssert(1);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_second() // that is, discard the first event only
             => await DiscardAndAssert(2);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_last_in_first_block()
             => await DiscardAndAssert(firstNotFitting-1);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_first_in_second_block()
             => await DiscardAndAssert(firstNotFitting);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_second_in_second_block()
             => await DiscardAndAssert(firstNotFitting+1);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_penultimate()
             => await DiscardAndAssert(lastEvent - 1);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_last()
             => await DiscardAndAssert(lastEvent);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_one_past_the_last()
             => await DiscardAndAssert(lastEvent + 1);
 
-        [Test]
+        [Fact]
         public async Task discard_up_to_two_past_the_last()
             => await DiscardAndAssert(lastEvent + 2);
         #endregion
 
         #region DiscardUpTo after Fetch
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_zero()
             => await FetchDiscardAndAssert(0);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_first()
             => await FetchDiscardAndAssert(1);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_second()
             => await FetchDiscardAndAssert(2);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_last_of_first_block()
             => await FetchDiscardAndAssert(firstNotFitting-1);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_first_in_second_block()
             => await FetchDiscardAndAssert(firstNotFitting);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_second_in_second_block()
             => await FetchDiscardAndAssert(firstNotFitting+1);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_penultimate()
             => await FetchDiscardAndAssert(lastEvent - 1);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_last()
             => await FetchDiscardAndAssert(lastEvent);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_one_past_the_last()
             => await FetchDiscardAndAssert(lastEvent + 1);
 
-        [Test]
+        [Fact]
         public async Task fetch_and_discard_up_to_two_past_the_last()
             => await FetchDiscardAndAssert(lastEvent + 2);
         #endregion

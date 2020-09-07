@@ -1,34 +1,33 @@
 ﻿using System;
 using Lokad.AzureEventStore.Drivers;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
-    [TestFixture]
     public sealed class azure_parse_nth
     {
-        [Test]
+        [Fact]
         public void zero()
         {
-            Assert.AreEqual(0, AzureHelpers.ParseNth("events.00000"));
+            Assert.Equal(0, AzureHelpers.ParseNth("events.00000"));
         }
 
-        [Test]
+        [Fact]
         public void compact_throws()
         {
             Assert.Throws<ArgumentException>(() => AzureHelpers.ParseNth("events.00000.compact"));
         }
 
-        [Test]
+        [Fact]
         public void bad_throws()
         {
             Assert.Throws<ArgumentException>(() => AzureHelpers.ParseNth("events.00FF0"));
         }
 
-        [Test]
+        [Fact]
         public void value()
         {
-            Assert.AreEqual(28, AzureHelpers.ParseNth("events.00028"));
+            Assert.Equal(28, AzureHelpers.ParseNth("events.00028"));
         }
     }
 }

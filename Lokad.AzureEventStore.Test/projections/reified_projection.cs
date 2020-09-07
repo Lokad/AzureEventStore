@@ -5,22 +5,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
 using Moq;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.projections
 {
-    [TestFixture]
-    internal class reified_projection
+    public class reified_projection
     {
-        protected virtual IReifiedProjection<int, string> Make(IProjection<int, string> projection,
+        internal virtual IReifiedProjection<int, string> Make(IProjection<int, string> projection,
             IProjectionCacheProvider cache = null)
         {
             return new ReifiedProjection<int, string>(projection, cache);
         }
 
-            #region Initialization 
+        #region Initialization 
 
-        [Test]
+        [Fact]
         public void initial()
         {
             var projection = new Mock<IProjection<int, string>>();
@@ -30,49 +29,71 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object);
             
-            Assert.AreEqual("initial", reified.Current);
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal("initial", reified.Current);
+            Assert.Equal((uint) 0U, (uint) reified.Sequence);
         }
 
-        [Test, ExpectedException(typeof(ArgumentException))]
+        [Fact]
         public void name_required()
         {
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("initial");
-            projection.Setup(p => p.FullName).Returns((string)null);
-            projection.Setup(p => p.State).Returns(typeof(string));
+            try
+            {
+                var projection = new Mock<IProjection<int, string>>();
+                projection.Setup(p => p.Initial).Returns("initial");
+                projection.Setup(p => p.FullName).Returns((string)null);
+                projection.Setup(p => p.State).Returns(typeof(string));
 
-            Assert.IsNotNull(Make(projection.Object));
+                Make(projection.Object);
+                Assert.True(false);
+            }
+            catch (ArgumentException)
+            {
+            }
         }
 
-        [Test, ExpectedException(typeof(ArgumentException))]
+        [Fact]
         public void name_constrained()
         {
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("initial");
-            projection.Setup(p => p.FullName).Returns("2/3");
-            projection.Setup(p => p.State).Returns(typeof(string));
+            try
+            {
+                var projection = new Mock<IProjection<int, string>>();
+                projection.Setup(p => p.Initial).Returns("initial");
+                projection.Setup(p => p.FullName).Returns("2/3");
+                projection.Setup(p => p.State).Returns(typeof(string));
 
-            Assert.IsNotNull(Make(projection.Object));
+                Make(projection.Object);
+                Assert.True(false);
+            }
+            catch (ArgumentException)
+            {
+
+            }
         }
-
-        [Test, ExpectedException(typeof(InvalidOperationException), 
-            ExpectedMessage = "Projection initial state must not be null")]
+        
+        [Fact]
         public void initial_required()
         {
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns((string)null);
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
+            try
+            {
+                var projection = new Mock<IProjection<int, string>>();
+                projection.Setup(p => p.Initial).Returns((string)null);
+                projection.Setup(p => p.FullName).Returns("test");
+                projection.Setup(p => p.State).Returns(typeof(string));
 
-            Assert.IsNotNull(Make(projection.Object));
+                Make(projection.Object);
+                Assert.True(false);
+            }
+            catch (InvalidOperationException e)
+            {
+                Assert.Equal("Projection initial state must not be null", e.Message);
+            }
         }
 
         #endregion
 
         #region Event application 
 
-        [Test]
+        [Fact]
         public void apply_event()
         {
             var projection = new Mock<IProjection<int, string>>();
@@ -84,16 +105,16 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object);
             
-            Assert.AreEqual("I", reified.Current);
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
+            Assert.Equal((uint) 0U, (uint) reified.Sequence);
 
             reified.Apply(1U, 13);
 
-            Assert.AreEqual("I(13:1)", reified.Current);
-            Assert.AreEqual((uint) 1U, (uint) reified.Sequence);
+            Assert.Equal("I(13:1)", reified.Current);
+            Assert.Equal((uint) 1U, (uint) reified.Sequence);
         }
 
-        [Test]
+        [Fact]
         public void apply_event_skip()
         {
             var projection = new Mock<IProjection<int, string>>();
@@ -108,11 +129,11 @@ namespace Lokad.AzureEventStore.Test.projections
             reified.Apply(1U, 13);
             reified.Apply(4U, 42);
 
-            Assert.AreEqual("I(13:1)(42:4)", reified.Current);
-            Assert.AreEqual((uint) 4U, (uint) reified.Sequence);
+            Assert.Equal("I(13:1)(42:4)", reified.Current);
+            Assert.Equal((uint) 4U, (uint) reified.Sequence);
         }
 
-        [Test]
+        [Fact]
         public virtual void apply_event_fails()
         {
             var projection = new Mock<IProjection<int, string>>();
@@ -124,33 +145,49 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object);
 
-            Assert.Throws<Exception>(() => reified.Apply(1U, 13), "Boo.");
+            try
+            {
+                reified.Apply(1U, 13);
+                Assert.True(false);
+            }
+            catch (Exception e)
+            {
+                Assert.Equal("Boo.", e.Message);
+            }
 
-            Assert.AreEqual("I", reified.Current);
-            Assert.AreEqual((uint) 1U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
+            Assert.Equal((uint)1U, (uint)reified.Sequence);
         }
 
-        [Test, ExpectedException(typeof(ArgumentException))]
+        [Fact]
         public void reapply_event()
         {
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
-                .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
+            try
+            {
+                var projection = new Mock<IProjection<int, string>>();
+                projection.Setup(p => p.Initial).Returns("I");
+                projection.Setup(p => p.FullName).Returns("test");
+                projection.Setup(p => p.State).Returns(typeof(string));
+                projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
+                    .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
 
-            var reified = Make(projection.Object);
+                var reified = Make(projection.Object);
 
-            reified.Apply(1U, 13);
-            reified.Apply(1U, 13);
+                reified.Apply(1U, 13);
+                reified.Apply(1U, 13);
+
+                Assert.True(false);
+            }
+            catch (ArgumentException)
+            {
+            }
         }
 
         #endregion
 
         #region Loading 
 
-        [Test]
+        [Fact]
         public async Task load_state()
         {
             var cache = new Mock<IProjectionCacheProvider>();
@@ -169,7 +206,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 .Returns<Stream, CancellationToken>((s, c) =>
                 {
                     var bytes = new byte[4];
-                    Assert.AreEqual(0, s.Position);
+                    Assert.Equal(0, s.Position);
                     s.Read(bytes, 0, 4);
                     return Task.FromResult(Encoding.UTF8.GetString(bytes)); 
                 });
@@ -178,11 +215,11 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.AreEqual((uint) 2U, (uint) reified.Sequence);
-            Assert.AreEqual("0000", reified.Current);
+            Assert.Equal((uint) 2U, (uint) reified.Sequence);
+            Assert.Equal("0000", reified.Current);
         }
 
-        [Test]
+        [Fact]
         public async Task load_state_bad_terminator()
         {
             var cache = new Mock<IProjectionCacheProvider>();
@@ -203,11 +240,11 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual("I", reified.Current);
+            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
         }
 
-        [Test]
+        [Fact]
         public async Task load_state_truncated()
         {
             var cache = new Mock<IProjectionCacheProvider>();
@@ -228,11 +265,11 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual("I", reified.Current);
+            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
         }
 
-        [Test]
+        [Fact]
         public async Task load_state_bad_name()
         {
             var cache = new Mock<IProjectionCacheProvider>();
@@ -256,12 +293,12 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual("I", reified.Current);
+            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
         }
 
 
-        [Test]
+        [Fact]
         public async Task load_state_sream_throws()
         {
             var stream = new Mock<Stream>();
@@ -284,22 +321,22 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 await reified.TryLoadAsync(CancellationToken.None);
-                Assert.Fail("Expected exception");
+                Assert.True(false);
             }
             catch (Exception e)
             {
-                Assert.AreEqual("Stream.Read", e.Message);
+                Assert.Equal("Stream.Read", e.Message);
             }
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual("I", reified.Current);
+            Assert.Equal(0U, reified.Sequence);
+            Assert.Equal("I", reified.Current);
         }
 
         #endregion
 
         #region Saving
 
-        [Test]
+        [Fact]
         public async Task save()
         {
             var ms = new MemoryStream();
@@ -323,7 +360,7 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 0x00, 0x00, 0x00, 0x00, // Sequence number (first)
                 0x30, // Contents "0"
@@ -331,7 +368,7 @@ namespace Lokad.AzureEventStore.Test.projections
             }, ms.ToArray());
         }
 
-        [Test]
+        [Fact]
         public async Task save_failed()
         {
             var ms = new MemoryStream();
@@ -355,7 +392,7 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 0x00, 0x00, 0x00, 0x00, // Sequence number (first)
                 0x30, // Contents "0"
@@ -363,7 +400,7 @@ namespace Lokad.AzureEventStore.Test.projections
             }, ms.ToArray());
         }
 
-        [Test]
+        [Fact]
         public async Task save_throws()
         {
             var ms = new MemoryStream();
@@ -383,21 +420,21 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 await reified.TrySaveAsync(CancellationToken.None);
-                Assert.Fail("Exception expected.");
+                Assert.True(false);
             }
             catch (Exception e)
             {
-                Assert.AreEqual("Projection.TrySaveAsync", e.Message);
+                Assert.Equal("Projection.TrySaveAsync", e.Message);
             }
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 0x00, 0x00, 0x00, 0x00, // Sequence number (first)
                 // Cut short
             }, ms.ToArray());
         }
 
-        [Test]
+        [Fact]
         public async Task save_write_throws()
         {
             var stream = new Mock<Stream>();
@@ -421,15 +458,15 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 await reified.TrySaveAsync(CancellationToken.None);
-                Assert.Fail("Exception expected.");
+                Assert.True(false);
             }
             catch (Exception e)
             {
-                Assert.AreEqual("Stream.Write", e.Message);
+                Assert.Equal("Stream.Write", e.Message);
             }
         }
 
-        [Test]
+        [Fact]
         public async Task save_inconsistent()
         {
             var ms = new MemoryStream();
@@ -450,13 +487,13 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 // Cut short
             }, ms.ToArray());
         }
 
-        [Test]
+        [Fact]
         public async Task save_reset_inconsistent()
         {
             var ms = new MemoryStream();
@@ -471,7 +508,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Returns<Stream, string, CancellationToken>((s, state, c) =>
                 {
-                    var bytes = Encoding.UTF8.GetBytes((string) state);
+                    var bytes = Encoding.UTF8.GetBytes(state);
                     s.Write(bytes, 0, bytes.Length);
                     return Task.FromResult(true);
                 });
@@ -482,7 +519,7 @@ namespace Lokad.AzureEventStore.Test.projections
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 0x00, 0x00, 0x00, 0x00, // Sequence number (first)
                 0x30, // Contents "0"
@@ -490,7 +527,7 @@ namespace Lokad.AzureEventStore.Test.projections
             }, ms.ToArray());
         }
 
-        [Test]
+        [Fact]
         public virtual async Task save_auto_inconsistent()
         {
             var ms = new MemoryStream();
@@ -510,11 +547,11 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object, cache.Object);
 
-            Assert.Throws<Exception>(() => reified.Apply(1U, 13), "Boo."); // Sets 'inconsistent'
+            try { reified.Apply(1U, 13); /* Sets 'inconsistent' */ } catch {}
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 // Cut short
             }, ms.ToArray());

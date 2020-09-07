@@ -1,16 +1,15 @@
 ﻿using System;
 using System.IO;
 using Lokad.AzureEventStore.Drivers;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
-    [TestFixture]
-    internal sealed class file_storage_driver : storage_driver
+    public sealed class file_storage_driver : storage_driver
     {
         private string _path;
 
-        protected override IStorageDriver GetFreshStorageDriver()
+        internal override IStorageDriver GetFreshStorageDriver()
         {
             _path = @"C:\LokadData\AzureEventStore\FileStorageTests\" + Guid.NewGuid();
             return new FileStorageDriver(_path);

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.wrapper
 {
@@ -39,7 +39,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
         public CheckSequence WithNewEvent(TstEvent evt)
         {
-            Assert.AreEqual(ExpectedNextEvt, evt.Seq);
+            Assert.Equal(ExpectedNextEvt, evt.Seq);
             return new CheckSequence(evt.Seq, evt.Seq+1);
         }
 
@@ -70,7 +70,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             public CheckSequence Apply(uint sequence, TstEvent e, CheckSequence previous)
             {
-                Assert.AreEqual(sequence, e.Seq);
+                Assert.Equal(sequence, e.Seq);
                 return previous.WithNewEvent(e);
             }
 
@@ -91,10 +91,9 @@ namespace Lokad.AzureEventStore.Test.wrapper
     }
 
 
-    [TestFixture]
     public class sequentiality
     {
-        [Test]
+        [Fact]
         public async Task without_restart()
         {
             var memory = new MemoryStorageDriver();
@@ -106,17 +105,17 @@ namespace Lokad.AzureEventStore.Test.wrapper
             await ew.AppendEventsAsync(new[] { new TstEvent(2) });
             await ew.AppendEventsAsync(new[] { new TstEvent(3) });
 
-            Assert.AreEqual(3, ew.Current.LastEvt);
+            Assert.Equal(3u, ew.Current.LastEvt);
 
             // try to read: 
             var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
                 memory, new[] {new CheckSequence.Projection()}, null);
             
             await ew2.InitializeAsync();
-            Assert.AreEqual(3, ew2.Current.LastEvt);
+            Assert.Equal(3u, ew2.Current.LastEvt);
         }
         
-        [Test]
+        [Fact]
         public async Task with_restart()
         {
             var memory = new MemoryStorageDriver();
@@ -133,7 +132,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             await ew.AppendEventsAsync(new[] { new TstEvent(4) });
             await ew.AppendEventsAsync(new[] { new TstEvent(5) });
 
-            Assert.AreEqual(5, ew.Current.LastEvt);
+            Assert.Equal(5u, ew.Current.LastEvt);
 
             // try to read: 
             var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
@@ -141,7 +140,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 cache);
 
             await ew2.InitializeAsync();
-            Assert.AreEqual(5, ew2.Current.LastEvt);
+            Assert.Equal(5u, ew2.Current.LastEvt);
         }
     }
 }

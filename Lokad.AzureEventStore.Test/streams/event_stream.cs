@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Streams;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.streams
 {
@@ -21,33 +21,32 @@ namespace Lokad.AzureEventStore.Test.streams
         public IntegerEvent(int i = 0) { Integer = i; }
     }
 
-    [TestFixture]
     public sealed class event_stream
     {
-        [Test]
+        [Fact]
         public async Task write()
         {
             var driver = new MemoryStorageDriver();
             var stream = new EventStream<IStreamEvent>(driver);
 
             var result = await stream.WriteAsync(new IStreamEvent[] {new StreamEvent()});
-            Assert.AreEqual((object) 1, result);
+            Assert.Equal(1u, result);
         }
 
-        [Test]
+        [Fact]
         public async Task write_multiple()
         {
             var driver = new MemoryStorageDriver();
             var stream = new EventStream<IStreamEvent>(driver);
 
             var result = await stream.WriteAsync(new IStreamEvent[] { new StreamEvent(), new StreamEvent() });
-            Assert.AreEqual((object) 1, result);
+            Assert.Equal(1u, result);
             
             result = await stream.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.AreEqual((object) 3, result);
+            Assert.Equal(3u,  result);
         }
 
-        [Test]
+        [Fact]
         public async Task write_wrong_position()
         {
             var driver = new MemoryStorageDriver();
@@ -56,10 +55,10 @@ namespace Lokad.AzureEventStore.Test.streams
             var stream = new EventStream<IStreamEvent>(driver);
 
             var result = await stream.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.IsNull(result);
+            Assert.Null(result);
         }
 
-        [Test]
+        [Fact]
         public async Task write_restore_position()
         {
             var driver = new MemoryStorageDriver();
@@ -70,15 +69,15 @@ namespace Lokad.AzureEventStore.Test.streams
             stream = new EventStream<IStreamEvent>(driver);
 
             var result = await stream.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.IsNull(result);
+            Assert.Null(result);
 
             while (await stream.FetchAsync()) {}
 
             result = await stream.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.AreEqual((object) 2, result);
+            Assert.Equal(2u, result);
         }
 
-        [Test]
+        [Fact]
         public async Task write_changing_position()
         {
             var driver = new MemoryStorageDriver();
@@ -87,23 +86,23 @@ namespace Lokad.AzureEventStore.Test.streams
             var streamB = new EventStream<IStreamEvent>(driver);
 
             var result = await streamA.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.AreEqual((object) 1, result);
+            Assert.Equal(1u, result);
 
             while (await streamB.FetchAsync()) { }
 
             result = await streamB.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.AreEqual((object) 2, result);
+            Assert.Equal(2u, result);
 
             result = await streamA.WriteAsync(new IStreamEvent[] { new StreamEvent() });
-            Assert.IsNull(result);
+            Assert.Null(result);
 
             while (await streamA.FetchAsync()) { }
 
             result = await streamA.WriteAsync(new IStreamEvent[] {new StreamEvent()});
-            Assert.AreEqual((object) 3, result);
+            Assert.Equal(3u, result);
         }
 
-        [Test]
+        [Fact]
         public async Task naive_read()
         {
             var driver = new MemoryStorageDriver();
@@ -120,14 +119,14 @@ namespace Lokad.AzureEventStore.Test.streams
             IStreamEvent e;
             while ((e = stream.TryGetNext()) != null)
             {
-                Assert.AreEqual(next, ((IntegerEvent)e).Integer);
+                Assert.Equal(next, ((IntegerEvent)e).Integer);
                 ++next;
             }
 
-            Assert.AreEqual(next, 20);
+            Assert.Equal(next, 20);
         }
 
-        [Test]
+        [Fact]
         public async Task interlocked_read()
         {
             var driver = new MemoryStorageDriver();
@@ -144,16 +143,16 @@ namespace Lokad.AzureEventStore.Test.streams
                 IStreamEvent e;
                 while ((e = stream.TryGetNext()) != null)
                 {
-                    Assert.AreEqual(next, ((IntegerEvent) e).Integer);
+                    Assert.Equal(next, ((IntegerEvent) e).Integer);
                     ++next;
                 }
 
             } while (await stream.FetchAsync());
 
-            Assert.AreEqual(next, 20);
+            Assert.Equal(next, 20);
         }
 
-        [Test]
+        [Fact]
         public async Task background_read()
         {
             var driver = new MemoryStorageDriver();
@@ -173,7 +172,7 @@ namespace Lokad.AzureEventStore.Test.streams
                 IStreamEvent e;
                 while ((e = stream.TryGetNext()) != null)
                 {
-                    Assert.AreEqual(next, ((IntegerEvent)e).Integer);
+                    Assert.Equal(next, ((IntegerEvent)e).Integer);
                     ++next;
                 }
 
@@ -181,11 +180,11 @@ namespace Lokad.AzureEventStore.Test.streams
 
             } while (shouldContinue());
 
-            Assert.AreEqual(next, 20);
+            Assert.Equal(next, 20);
         }
 
 
-        [Test]
+        [Fact]
         public async Task discard()
         {
             var driver = new MemoryStorageDriver();
@@ -207,7 +206,7 @@ namespace Lokad.AzureEventStore.Test.streams
                 IStreamEvent e;
                 while ((e = stream.TryGetNext()) != null)
                 {
-                    Assert.AreEqual(next, ((IntegerEvent)e).Integer);
+                    Assert.Equal(next, ((IntegerEvent)e).Integer);
                     ++next;
                 }
 
@@ -215,10 +214,10 @@ namespace Lokad.AzureEventStore.Test.streams
 
             } while (shouldContinue());
 
-            Assert.AreEqual(next, 20);
+            Assert.Equal(next, 20);
         }
 
-        [Test]
+        [Fact]
         public async Task discard_after_fetch()
         {
             var driver = new MemoryStorageDriver();
@@ -232,21 +231,21 @@ namespace Lokad.AzureEventStore.Test.streams
             while (await stream.FetchAsync()) { }
             await stream.DiscardUpTo(11);
             
-            Assert.AreEqual((uint) 10, (uint) stream.Sequence);
+            Assert.Equal((uint) 10, (uint) stream.Sequence);
 
             var next = 10;
 
             IStreamEvent e;
             while ((e = stream.TryGetNext()) != null)
             {
-                Assert.AreEqual(next, ((IntegerEvent)e).Integer);
+                Assert.Equal(next, ((IntegerEvent)e).Integer);
                 ++next;
             }
 
-            Assert.AreEqual(next, 20);
+            Assert.Equal(next, 20);
         }
 
-        [Test]
+        [Fact]
         public async Task discard_above_end()
         {
             var driver = new MemoryStorageDriver();
@@ -260,7 +259,7 @@ namespace Lokad.AzureEventStore.Test.streams
 
             await stream.DiscardUpTo(30);
 
-            Assert.AreEqual((uint) 20, (uint) stream.Sequence);
+            Assert.Equal((uint) 20, (uint) stream.Sequence);
         }
     }
 }

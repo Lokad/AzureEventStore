@@ -1,12 +1,11 @@
 ﻿using Lokad.AzureEventStore.Drivers;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
-    [TestFixture]
-    internal sealed class memory_storage_driver : storage_driver
+    public sealed class memory_storage_driver : storage_driver
     {
-        protected override IStorageDriver GetFreshStorageDriver()
+        internal override IStorageDriver GetFreshStorageDriver()
         {
             return new MemoryStorageDriver();
         }

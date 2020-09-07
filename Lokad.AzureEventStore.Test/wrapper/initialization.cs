@@ -6,22 +6,21 @@ using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Test.streams;
 using Lokad.AzureEventStore.Wrapper;
 using Moq;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.wrapper
 {
-    [TestFixture]
     public class initialization
     {
-        [TestCase(0, 0, 1, 0, TestName = "empty_stream")]
-        [TestCase(0, 10, 1, 0, TestName = "non_empty_stream_no_projection")]
-        [TestCase(100, 110, 101, 0, TestName = "regular_startup_10_events_ahead")]
-        [TestCase(0, 10, 1, 0, TestName = "regular_startup_no_projection")]
-        [TestCase(98, 100, 99, 0, TestName = "regular_startup_1_event_ahead")]
-        [TestCase(99, 100, 100, 0, TestName = "regular_startup_2_events_ahead")]
-        [TestCase(100, 100, 101, 0, TestName = "startup_with_no_new_event", Description = "We don't want this one to reset")]
-        [TestCase(101, 100, 102, 1, TestName = "startup_with_projection_ahead_of_events")]
-        [TestCase(102, 100, 103, 1, TestName = "startup_with_projection_far_ahead_of_events")]
+        [InlineData(0, 0, 1, 0)] // empty_stream
+        [InlineData(0, 10, 1, 0)] // non_empty_stream_no_projection
+        [InlineData(100, 110, 101, 0)] // regular_startup_10_events_ahead
+        [InlineData(98, 100, 99, 0)] // regular_startup_1_event_ahead
+        [InlineData(99, 100, 100, 0)] // regular_startup_2_events_ahead
+        [InlineData(100, 100, 101, 0)] // startup_with_no_new_event (We don't want this one to reset)
+        [InlineData(101, 100, 102, 1)] // startup_with_projection_ahead_of_events
+        [InlineData(102, 100, 103, 1)] // startup_with_projection_far_ahead_of_events
+        [Theory]
         public async Task test(int projectionSeq, int streamSeq, int expectedRequestedDiscardSeq, int expectedResets)
         {
             if (streamSeq < 0 || projectionSeq < 0 || expectedRequestedDiscardSeq < 0 || expectedResets < 0)
@@ -31,8 +30,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var stream = new MockStream((uint)streamSeq);
             await EventStreamWrapper<object, object>.Catchup(projection, stream);
 
-            Assert.AreEqual(expectedRequestedDiscardSeq, stream.RequestedDiscardSeq);
-            Assert.AreEqual(expectedResets, stream.NbResets);
+            Assert.Equal((uint)expectedRequestedDiscardSeq, stream.RequestedDiscardSeq);
+            Assert.Equal(expectedResets, stream.NbResets);
         }
 
         private static Task<IReifiedProjection> ProjectionWithSeqnum(uint seqnum)
@@ -71,8 +70,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             public Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default(CancellationToken))
             {
-                Assert.Fail(nameof(BackgroundFetchAsync) + " not mocked");
-                throw new NotImplementedException();
+                throw new NotImplementedException(nameof(BackgroundFetchAsync) + " not mocked");
             }
         }
     }

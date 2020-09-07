@@ -4,23 +4,22 @@ using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Streams;
 using Newtonsoft.Json.Linq;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.streams
 {
-    [TestFixture]
     public sealed class migration_stream
     {
-        [Test]
+        [Fact]
         public async Task nothing()
         {
             var driver = new MemoryStorageDriver();
             var stream = new MigrationStream<JObject>(driver);
 
-            Assert.AreEqual((uint) 0U, (uint) await stream.LastWrittenAsync());
+            Assert.Equal(0U, await stream.LastWrittenAsync());
         }
 
-        [Test]
+        [Fact]
         public async Task already_filled()
         {
             var driver = new MemoryStorageDriver();
@@ -28,10 +27,10 @@ namespace Lokad.AzureEventStore.Test.streams
 
             var stream = new MigrationStream<JObject>(driver);
 
-            Assert.AreEqual((uint) 42U, (uint) await stream.LastWrittenAsync());
+            Assert.Equal(42U, await stream.LastWrittenAsync());
         }
 
-        [Test]
+        [Fact]
         public async Task write()
         {
             var driver = new MemoryStorageDriver();
@@ -43,15 +42,15 @@ namespace Lokad.AzureEventStore.Test.streams
                 new KeyValuePair<uint, JObject>(42, new JObject {{"a", new JValue(20)}}),
             });
 
-            Assert.AreEqual((uint) 42U, (uint) await stream.LastWrittenAsync());
+            Assert.Equal(42U, await stream.LastWrittenAsync());
 
             var written = driver.Read(0L, 10240);
 
-            Assert.AreEqual((int) 2, (int) written.Events.Count);
-            Assert.AreEqual((uint) 11, (uint) written.Events[0].Sequence);
-            Assert.AreEqual("{\"a\":10}", Encoding.UTF8.GetString(written.Events[0].Contents));
-            Assert.AreEqual((uint) 42, (uint) written.Events[1].Sequence);
-            Assert.AreEqual("{\"a\":20}", Encoding.UTF8.GetString(written.Events[1].Contents));
+            Assert.Equal(2, written.Events.Count);
+            Assert.Equal((uint) 11, written.Events[0].Sequence);
+            Assert.Equal("{\"a\":10}", Encoding.UTF8.GetString(written.Events[0].Contents));
+            Assert.Equal((uint) 42, written.Events[1].Sequence);
+            Assert.Equal("{\"a\":20}", Encoding.UTF8.GetString(written.Events[1].Contents));
         }
     }
 }

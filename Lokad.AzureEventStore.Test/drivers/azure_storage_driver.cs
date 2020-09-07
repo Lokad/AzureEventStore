@@ -8,16 +8,15 @@ using Lokad.AzureEventStore.Drivers;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Auth;
 using Microsoft.WindowsAzure.Storage.Blob;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
-    [TestFixture]
-    internal class azure_storage_driver : storage_driver
+    public class azure_storage_driver : storage_driver
     {
         private CloudBlobContainer _container;
 
-        protected override IStorageDriver GetFreshStorageDriver()
+        internal override IStorageDriver GetFreshStorageDriver()
         {
             // For CI, read from environment variable
             var str = Environment.GetEnvironmentVariable("AZURE_CONNECTION");
@@ -51,7 +50,7 @@ namespace Lokad.AzureEventStore.Test.drivers
             }
         }
 
-        [Test, Explicit]
+        [Fact(Skip="Long")]
         public async Task compaction()
         {
             var sw = Stopwatch.StartNew();
@@ -79,7 +78,7 @@ namespace Lokad.AzureEventStore.Test.drivers
 
                 if (i % 1000 == 0) Trace.WriteLine($"Emitted {i}");
 
-                Assert.IsNull(driver.RunningCompaction);
+                Assert.Null(driver.RunningCompaction);
             }
 
             Trace.WriteLine($"Written in {sw.Elapsed}");
@@ -101,15 +100,15 @@ namespace Lokad.AzureEventStore.Test.drivers
                         bytes[2] = (byte)(j >> 8);
                         bytes[3] = (byte)j;
 
-                        Assert.AreEqual((uint)j, e.Sequence);
-                        CollectionAssert.AreEqual(bytes, e.Contents);
+                        Assert.Equal((uint)j, e.Sequence);
+                        Assert.Equal(bytes, e.Contents);
 
                         ++j;
                         if (j % 1000 == 0) Trace.WriteLine($"Read {j}");
                     }
                 }
 
-                Assert.AreEqual(j, 2 * 50_000);
+                Assert.Equal(j, 2 * 50_000);
             }
 
             Trace.WriteLine($"Read (non-compacted) in {sw.Elapsed}");
@@ -124,7 +123,7 @@ namespace Lokad.AzureEventStore.Test.drivers
                 break;
             }
 
-            Assert.IsNotNull(driver.RunningCompaction);
+            Assert.NotNull(driver.RunningCompaction);
 
             if (driver.RunningCompaction != null)
             {
@@ -137,10 +136,10 @@ namespace Lokad.AzureEventStore.Test.drivers
             var wp = await driver.RefreshCache(CancellationToken.None);
 
             // Still the same write position
-            Assert.AreEqual(p, wp);
+            Assert.Equal(p, wp);
 
             // The correct number of blobs (one compact, one being appended to)
-            CollectionAssert.AreEqual(
+            Assert.Equal(
                 new[] { "events.00001.compact", "events.00002" },
                 driver.Blobs.Select(b => b.Name));
 
@@ -160,8 +159,8 @@ namespace Lokad.AzureEventStore.Test.drivers
                         bytes[2] = (byte)(j >> 8);
                         bytes[3] = (byte)j;
 
-                        Assert.AreEqual((uint)j, e.Sequence);
-                        CollectionAssert.AreEqual(bytes, e.Contents);
+                        Assert.Equal((uint)j, e.Sequence);
+                        Assert.Equal(bytes, e.Contents);
 
                         ++j;
                         if (j % 1000 == 0) Trace.WriteLine($"Read {j}");
@@ -170,7 +169,7 @@ namespace Lokad.AzureEventStore.Test.drivers
 
                 Trace.WriteLine($"Read (compacted) in {sw.Elapsed}");
 
-                Assert.AreEqual(j, 2 * 50_000 + 1);
+                Assert.Equal(j, 2 * 50_000 + 1);
             }
         }
     }

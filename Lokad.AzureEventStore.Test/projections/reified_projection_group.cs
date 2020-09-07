@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
 using Moq;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.projections
 {
@@ -30,12 +30,11 @@ namespace Lokad.AzureEventStore.Test.projections
         public static int Creations;
     }
 
-    [TestFixture]
-    internal sealed class reified_projection_group : reified_projection
+    public sealed class reified_projection_group : reified_projection
     {
         #region Parent class tests
 
-        protected override IReifiedProjection<int, string> Make(IProjection<int, string> projection, IProjectionCacheProvider cache = null)
+        internal override IReifiedProjection<int, string> Make(IProjection<int, string> projection, IProjectionCacheProvider cache = null)
         {
             return new ReifiedProjectionGroup<int, string>(new[] {projection}, cache);
         }
@@ -71,7 +70,7 @@ namespace Lokad.AzureEventStore.Test.projections
        
         #endregion
 
-        [Test]
+        [Fact]
         public void multi_initial()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
@@ -80,13 +79,13 @@ namespace Lokad.AzureEventStore.Test.projections
                 MockString().Object
             });
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual((int) 0, (int) reified.Current.I.Value);
-            Assert.AreEqual("I", reified.Current.S);
+            Assert.Equal(0U, reified.Sequence);
+            Assert.Equal(0, reified.Current.I.Value);
+            Assert.Equal("I", reified.Current.S);
         }
 
 
-        [Test]
+        [Fact]
         public void multi_apply()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
@@ -97,12 +96,12 @@ namespace Lokad.AzureEventStore.Test.projections
 
             reified.Apply(1U, 10);
 
-            Assert.AreEqual((uint) 1U, (uint) reified.Sequence);
-            Assert.AreEqual((int) 10, (int) reified.Current.I.Value);
-            Assert.AreEqual("I(10:1)", reified.Current.S);
+            Assert.Equal(1U, reified.Sequence);
+            Assert.Equal(10, reified.Current.I.Value);
+            Assert.Equal("I(10:1)", reified.Current.S);
         }
 
-        [Test]
+        [Fact]
         public void multi_apply_reset()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
@@ -113,17 +112,17 @@ namespace Lokad.AzureEventStore.Test.projections
 
             reified.Apply(1U, 10);
 
-            Assert.IsNotNull(reified.Current); 
+            Assert.NotNull(reified.Current); 
 
             reified.Reset();
 
-            Assert.AreEqual((uint) 0U, (uint) reified.Sequence);
-            Assert.AreEqual((int) 0, (int) reified.Current.I.Value);
-            Assert.AreEqual("I", reified.Current.S);
+            Assert.Equal(0U, reified.Sequence);
+            Assert.Equal(0, reified.Current.I.Value);
+            Assert.Equal("I", reified.Current.S);
         }
 
 
-        [Test, ExpectedException(typeof(ArgumentException))]
+        [Fact]
         public void multi_apply_double()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
@@ -132,11 +131,19 @@ namespace Lokad.AzureEventStore.Test.projections
                 MockString().Object
             });
 
-            reified.Apply(1U, 10);
-            reified.Apply(1U, 10);
+            try
+            {
+                reified.Apply(1U, 10);
+                reified.Apply(1U, 10);
+                Assert.True(false);
+            }
+            catch (ArgumentException)
+            {
+                ;
+            }
         }
 
-        [Test]
+        [Fact]
         public void multi_apply_twice()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
@@ -150,15 +157,15 @@ namespace Lokad.AzureEventStore.Test.projections
             reified.Apply(1U, 10);
             reified.Apply(4U, 14);
 
-            Assert.AreEqual((uint) 4U, (uint) reified.Sequence);
-            Assert.AreEqual(oldcount, State.Creations);
-            Assert.AreEqual((int) 24, (int) reified.Current.I.Value);
-            Assert.AreEqual(oldcount+1, State.Creations);
-            Assert.AreEqual("I(10:1)(14:4)", reified.Current.S);
-            Assert.AreEqual(oldcount+1, State.Creations);
+            Assert.Equal(4U, reified.Sequence);
+            Assert.Equal(oldcount, State.Creations);
+            Assert.Equal(24, reified.Current.I.Value);
+            Assert.Equal(oldcount+1, State.Creations);
+            Assert.Equal("I(10:1)(14:4)", reified.Current.S);
+            Assert.Equal(oldcount+1, State.Creations);
         }
 
-        [Test]
+        [Fact]
         public async Task multi_apply_separate()
         {
             var cache = new Mock<IProjectionCacheProvider>();
@@ -190,12 +197,12 @@ namespace Lokad.AzureEventStore.Test.projections
             reified.Apply(1U, 10);
             reified.Apply(4U, 14);
 
-            Assert.AreEqual((uint) 4U, (uint) reified.Sequence);
-            Assert.AreEqual((int) 24, (int) reified.Current.I.Value);
-            Assert.AreEqual("0000(14:4)", reified.Current.S);
+            Assert.Equal(4U, reified.Sequence);
+            Assert.Equal(24, reified.Current.I.Value);
+            Assert.Equal("0000(14:4)", reified.Current.S);
         }
 
-        [Test]
+        [Fact]
         public override void apply_event_fails()
         {
             var projection = new Mock<IProjection<int, string>>();
@@ -207,13 +214,13 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object);
 
-            Assert.Throws<AggregateException>(() => reified.Apply(1U, 13), "Boo.");
+            try { reified.Apply(1U, 13); } catch { }
 
-            Assert.AreEqual("I", reified.Current);
-            Assert.AreEqual((uint) 1U, (uint) reified.Sequence);
+            Assert.Equal("I", reified.Current);
+            Assert.Equal(1U, reified.Sequence);
         }
 
-        [Test]
+        [Fact]
         public override async Task save_auto_inconsistent()
         {
             var ms = new MemoryStream();
@@ -233,11 +240,11 @@ namespace Lokad.AzureEventStore.Test.projections
 
             var reified = Make(projection.Object, cache.Object);
 
-            Assert.Throws<AggregateException>(() => reified.Apply(1U, 13), "Boo."); // Sets 'inconsistent'
+            try { reified.Apply(1U, 13); } catch { } // Sets 'inconsistent'
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            CollectionAssert.AreEqual(new byte[]
+            Assert.Equal(new byte[]
             {
                 // Cut short
             }, ms.ToArray());

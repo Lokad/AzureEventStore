@@ -2,21 +2,20 @@
 using System.IO;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.projections
 {
-    [TestFixture]
-    public sealed class file_projection_cache
+    public sealed class file_projection_cache : IDisposable
     {
-        [Test]
+        [Fact]
         public async Task load_empty()
         {
             var stream = await _file.OpenReadAsync("test");
-            Assert.IsNull(stream);
+            Assert.Null(stream);
         }
 
-        [Test]
+        [Fact]
         public async Task save_load()
         {
             var bytes = new byte[10];
@@ -30,12 +29,12 @@ namespace Lokad.AzureEventStore.Test.projections
                 var others = new byte[bytes.Length];
                 var count = read.Read(others, 0, others.Length);
 
-                Assert.AreEqual(bytes.Length, (int) count);
-                CollectionAssert.AreEqual(bytes, others);
+                Assert.Equal(bytes.Length, count);
+                Assert.Equal(bytes, others);
             }
         }
 
-        [Test]
+        [Fact]
         public async Task save_load_wrong()
         {
             var bytes = new byte[10];
@@ -45,10 +44,10 @@ namespace Lokad.AzureEventStore.Test.projections
             }
 
             var stream = await _file.OpenReadAsync("wrong");
-            Assert.IsNull(stream);
+            Assert.Null(stream);
         }
 
-        [Test]
+        [Fact]
         public async Task save_overwrite_load()
         {
             var bytes = new byte[10];
@@ -67,21 +66,21 @@ namespace Lokad.AzureEventStore.Test.projections
                 var others = new byte[bytes.Length];
                 var count = read.Read(others, 0, others.Length);
 
-                Assert.AreEqual(bytes.Length /  2, (int) count);
+                Assert.Equal(bytes.Length /  2, count);
             }
         }
 
-        [Test]
+        [Fact]
         public async Task write_write_lock()
         {
             using (await _file.OpenWriteAsync("test"))
             {
                 var write2 = await _file.OpenWriteAsync("test");
-                Assert.IsNull(write2);
+                Assert.Null(write2);
             }
         }
 
-        [Test]
+        [Fact]
         public async Task write_read_lock()
         {
             var bytes = new byte[10];
@@ -93,7 +92,7 @@ namespace Lokad.AzureEventStore.Test.projections
             using (await _file.OpenWriteAsync("test"))
             {
                 var read = await _file.OpenReadAsync("test");
-                Assert.IsNull(read);
+                Assert.Null(read);
             }
         }
         #region Boilerplate 
@@ -101,15 +100,13 @@ namespace Lokad.AzureEventStore.Test.projections
         private IProjectionCacheProvider _file;
         private string _path;
 
-        [SetUp]
-        public void SetUp()
+        public file_projection_cache()
         {
             _path = @"C:\LokadData\AzureEventStore\FileStorageTests\" + Guid.NewGuid();
             _file = new FileProjectionCache(_path);
         }
 
-        [TearDown]
-        public void TearDown()
+        public void Dispose()
         {
             try
             {
@@ -117,7 +114,6 @@ namespace Lokad.AzureEventStore.Test.projections
             }
             catch { }
         }
-
         #endregion
     }
 }

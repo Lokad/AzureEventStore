@@ -1,13 +1,12 @@
 ﻿using System;
 using Lokad.AzureEventStore.Drivers;
-using NUnit.Framework;
+using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
-    [TestFixture]
     public sealed class raw_event
     {
-        [Test]
+        [Fact]
         public void creation()
         {
             var bytes = new byte[8*512];
@@ -15,20 +14,36 @@ namespace Lokad.AzureEventStore.Test.drivers
 
             var ev = new RawEvent(1337, bytes);
 
-            Assert.AreEqual((uint) 1337, (uint) ev.Sequence);
-            CollectionAssert.AreEqual(bytes, ev.Contents);
+            Assert.Equal((uint) 1337, (uint) ev.Sequence);
+            Assert.Equal(bytes, ev.Contents);
         }
 
-        [Test, ExpectedException(typeof (ArgumentException), ExpectedMessage = "Content size 137 not a multiple of 8")]
+        [Fact]
         public void not_multiple()
         {
-            Assert.IsNotNull(new RawEvent(1337, new byte[137]));
+            try
+            {
+                new RawEvent(1337, new byte[137]);
+                Assert.True(false);
+            }
+            catch (ArgumentException e)
+            {
+                Assert.Equal("Content size 137 not a multiple of 8", e.Message);
+            }
         }
 
-        [Test, ExpectedException(typeof(ArgumentException), ExpectedMessage = "Content size 530000 exceeds 512KB.")]
+        [Fact]
         public void too_large()
         {
-            Assert.IsNotNull(new RawEvent(1337, new byte[530000]));
+            try
+            {
+                new RawEvent(1337, new byte[530000]);
+                Assert.True(false);
+            }
+            catch (ArgumentException e)
+            {
+                Assert.Equal("Content size 530000 exceeds 512KB.", e.Message);
+            }
         }
     }
 }
