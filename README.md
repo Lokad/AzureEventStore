@@ -333,6 +333,48 @@ of the builder:
 	var newCount = result.Result;
 ```
 
+### Stream Migrations
+
+The application should not be allowed to modify past events. However, as 
+a matter of system administration, it is possible to change the event 
+stream. This should always be a manually triggered operation, and will 
+include the following steps: 
+
+ 1. Develop the migration concierge, an executable which reads from the 
+    current stream (using `EventStream<T>`) and writes to a new stream 
+    (using `MigrationStream<T>`). This will take anywhere from a few minutes
+    to several days.
+ 2. Start the migration concierge, wait for it to catch up to the current
+    stream. This will usually take tens of minutes. 
+ 3. Turn off the application (or re-configure it to be read-only).
+ 4. Wait for the migration concierge to process all events that were added
+    to the stream before the application stopped writing. This should take
+    a few seconds.
+ 5. Stop the migration concierge.
+ 6. Re-configure the application to use the new stream instead of the current
+    stream, and start it. 
+
+You can improve the restart time by pre-generating a state cache based on the
+new stream (right after step 2) and uploading it so that the application can
+use it to start up more easily.
+
+Example of a migration concierge which drops all events of a defunct type 
+`ObsoleteEvent`:
+
+```csharp
+    var currentStream = new EventStream<IMyEvent>(currentConfig);
+    var newStream = new MigrationStream<IMyEvent>(newConfig);
+
+    await newStream.MigrateFromAsync(
+        currentStream, 
+        // Drop events of type 'ObsoletEvent'
+        (IMyEvent ev, uint _seq) => ev is ObseleteEvent ? null : ev, 
+        // When reaching the end of 'currentStream', refresh it every 2 seconds
+        // to see if new events have appeared
+        TimeSpan.FromSeconds(2),
+        default(CancellationToken));
+```
+
 ## Architecture
 
 This project is split into multiple layers. Starting at the top level 

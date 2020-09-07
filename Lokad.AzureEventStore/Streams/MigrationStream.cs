@@ -124,5 +124,88 @@ namespace Lokad.AzureEventStore.Streams
             _sequence = sequence;
             _position = position;
         }
+
+        /// <summary>
+        ///     Migrate events from the source stream to this migration stream.
+        /// </summary>
+        /// <param name="source">
+        ///     Events are read from this stream.
+        /// </param>
+        /// <param name="migrator">
+        ///     Function invoked to migrate an event. Receives the event and 
+        ///     its sequence number as argument, must return the event to be
+        ///     written (or null if the event should be dropped). 
+        ///     
+        ///     The function will be invoked starting with the very first
+        ///     event in the source stream, but its return value will be 
+        ///     ignored if the sequence number is smaller than the value 
+        ///     returned by <see cref="LastWrittenAsync"/> (the purpose of 
+        ///     this is to let the migrator function accumulate any necessary
+        ///     internal state).
+        ///     
+        ///     The events retain their sequence number. Dropped events (those
+        ///     for which the migrator returns null) are not migrated at all.
+        /// </param>
+        /// <param name="refreshDelay">
+        ///     No effect until migration has reached the end of the source 
+        ///     stream.
+        ///     
+        ///     If null, migration ends when the end of the source stream is 
+        ///     reached. 
+        ///     
+        ///     If provided, once the end of the source stream is 
+        ///     reached, will poll the source stream forever (with this delay)
+        ///     looking for new events.
+        /// </param>
+        /// <param name="cancel">
+        ///     Invoke to interrupt the migration.
+        /// </param>
+        public async Task MigrateFromAsync(
+            IEventStream<TEvent> source,
+            Func<TEvent, uint, TEvent> migrator,
+            TimeSpan? refreshDelay,
+            CancellationToken cancel)
+        {
+            var lastSeq = await LastWrittenAsync(cancel);
+            var list = new List<KeyValuePair<uint, TEvent>>();
+
+            while (true)
+            {
+                cancel.ThrowIfCancellationRequested();
+
+                var fetch = source.BackgroundFetchAsync();
+
+                while (source.TryGetNext() is TEvent next)
+                {
+                    var seq = source.Sequence;
+
+                    if (!(migrator(next, seq) is TEvent migrated))
+                        // Do not migrate this event.
+                        continue;
+
+                    if (seq <= lastSeq)
+                        // Event already migrated previously
+                        continue;
+
+                    list.Add(new KeyValuePair<uint, TEvent>(seq, migrated));
+                }
+
+                if (list.Count > 0)
+                {
+                    await WriteAsync(list, cancel).ConfigureAwait(false);
+                    list.Clear();
+                }
+
+                var more = await fetch.ConfigureAwait(false);
+
+                if (more()) continue;
+
+                // Reached the end of the stream.
+                if (refreshDelay == null) 
+                    return;
+                else
+                    await Task.Delay(refreshDelay.Value, cancel).ConfigureAwait(false);
+            } 
+        }
     }
 }
