@@ -38,6 +38,16 @@ namespace Lokad.AzureEventStore
             _storageDriver = driver;
         }
 
+        public bool IsAzureStorage
+        {
+            get
+            {
+                var oic = StringComparison.OrdinalIgnoreCase;
+                return ConnectionString.StartsWith("DefaultEndpointsProtocol", oic) ||
+                       ConnectionString.StartsWith("BlobEndpoint", oic);
+            }
+        }
+
         internal IStorageDriver Connect()
         {
             if (_storageDriver != null) return _storageDriver;
@@ -56,8 +66,7 @@ namespace Lokad.AzureEventStore
                 cs = cs.Substring(0, containerI);
             }
 
-            if (cs.StartsWith("DefaultEndpointsProtocol", StringComparison.OrdinalIgnoreCase) ||
-                cs.StartsWith("BlobEndpoint", StringComparison.OrdinalIgnoreCase))
+            if (IsAzureStorage)
             {
                 var account = CloudStorageAccount.Parse(cs);
                 var client = account.CreateCloudBlobClient();
