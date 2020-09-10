@@ -168,13 +168,12 @@ namespace Lokad.AzureEventStore.Test.projections
         [Fact]
         public async Task multi_apply_separate()
         {
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("string")), new MemoryStream(new byte[]
-                {
-                    0x02, 0x00, 0x00, 0x00, // Current position (beginning)
-                    0x30, 0x30, 0x30, 0x30, // Event data "0000"
-                    0x02, 0x00, 0x00, 0x00  // Current position (end)
-                }));
+            var cache = new Testing.InMemoryCache { { "string", new byte[]
+            {
+                0x02, 0x00, 0x00, 0x00, // Current position (beginning)
+                0x30, 0x30, 0x30, 0x30, // Event data "0000"
+                0x02, 0x00, 0x00, 0x00  // Current position (end)
+            } } };
 
             var str = MockString();
 
@@ -190,7 +189,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 str.Object
-            }, cache.Object);
+            }, cache);
 
             await reified.TryLoadAsync(CancellationToken.None);
 
@@ -223,14 +222,12 @@ namespace Lokad.AzureEventStore.Test.projections
         [Fact]
         public override async Task save_auto_inconsistent()
         {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
+            const string Name = "test";
+            var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.FullName).Returns(Name);
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Throws(new Exception("Projection.TrySaveAsync"));
@@ -238,16 +235,13 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             try { reified.Apply(1U, 13); } catch { } // Sets 'inconsistent'
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            Assert.Equal(new byte[]
-            {
-                // Cut short
-            }, ms.ToArray());
+            Assert.False(cache.Streams.ContainsKey(Name));
         }
     }
 }

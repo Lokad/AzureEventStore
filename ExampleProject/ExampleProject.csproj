@@ -1,24 +1,30 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net462;</TargetFrameworks>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
     <AssemblyName>ExampleProject</AssemblyName>
     <RuntimeIdentifiers>win</RuntimeIdentifiers>
     <OutputType>Exe</OutputType>
     <Company>Lokad</Company>
-    <Copyright>Copyright © Lokad 2017</Copyright>
+    <Copyright>Copyright © Lokad 2020</Copyright>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <PackageVersion>1.0.0.0</PackageVersion>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="MessagePack" Version="2.1.165" />
+    <PackageReference Include="MessagePack.ImmutableCollection" Version="2.1.165" />
     <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="9.4.1" />
-    <PackageReference Include="Microsoft.Bcl.Immutable" Version="1.0.34" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />
   </ItemGroup>
+  <!-- When developing locally, comment out this block and uncomment the one below it. -->
   <ItemGroup>
-    <Folder Include="Properties\" />
+    <PackageReference Include="Lokad.AzureEventStore" Version="5.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="1.0.0" />
   </ItemGroup>
+  <!--
   <ItemGroup>
+    <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
   </ItemGroup>
+  -->
 </Project>

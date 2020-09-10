@@ -1,8 +1,10 @@
 ﻿using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using ExampleProject.Events;
 using Lokad.AzureEventStore;
+using Lokad.AzureEventStore.Cache;
 
 namespace ExampleProject
 {
@@ -10,7 +12,8 @@ namespace ExampleProject
     {
         public const string AccountName = "";
         public const string AccountKey = "";
-        public const string ConnectionString = @"DefaultEndpointsProtocol=https;AccountName=" + AccountName + ";AccountKey=" + AccountKey + ";Container=exampleproject";
+        public const string LocalCache = @"C:\LokadData\example-cache";
+        public const string ConnectionString = @"DefaultEndpointsProtocol=https;AccountName=" + AccountName + ";AccountKey=" + AccountKey + ";Container=example";
 
         static async Task Main(string[] args)
         {
@@ -27,7 +30,7 @@ namespace ExampleProject
                 projections: new[] { new Projection() },
                 // This is where we would write the projection snapshots, if
                 // we had implemented them.
-                projectionCache: null,
+                projectionCache: new MappedCacheProvider(LocalCache),
                 // This is used by the service to emit messages about what is happening
                 log: new Log(),
                 // This cancellation token stops the background process.
@@ -35,8 +38,14 @@ namespace ExampleProject
 
             svc.RefreshPeriod = 10 * 60;
 
+            // Once the stream is fully loaded, save it to cache.
+            _ = svc.Ready.ContinueWith(_ => svc.TrySaveAsync(cts.Token));
+
             while (true)
             {
+                if (svc.IsReady)
+                    Console.WriteLine("{0} words in index", svc.LocalState.Index.Count);
+
                 var line = Console.ReadLine();
                 if (line == null || line == "QUIT") break;
 
@@ -48,43 +57,75 @@ namespace ExampleProject
                     continue;
                 }
 
-                if (line == "")
+                if (line.StartsWith("file "))
                 {
-                    var state = await svc.CurrentState(default);
+                    var path = line.Substring("file ".Length);
+                    string text;
 
-                    foreach (var kv in state.Bindings)
+                    try
                     {
-                        Console.WriteLine("{0} -> {1}", kv.Key, kv.Value);
+                        text = File.ReadAllText(path);
                     }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine("Error: {0}", e.Message);
+                        continue;
+                    }
+
+                    if (text.Length > 65536) 
+                        text = text.Substring(0, 65536);
+
+                    var id =
+                        await svc.AppendEventsAsync(
+                            state =>
+                                svc.With(state.Documents.Count, new DocumentAdded(state.Documents.Count, path, text)),
+                            default);
+
+                    Console.WriteLine("Added as document {0}", id.More);
+
                     continue;
                 }
 
-                var delete = line.StartsWith("--");
-                if (delete) line = line.Substring(2);
-                
-                var words = line.Split(' ');
-                foreach (var word in words)
+                if (line.StartsWith("folder "))
                 {
-                    // Append either an update or a deletion event for each word in the
-                    // provided sentence, then display the new count for that word.
-                    var newCount = (await svc.AppendEventsAsync(s =>
+                    var dir = line.Substring("folder ".Length);
+
+                    foreach (var path in Directory.GetFiles(dir))
                     {
-                        // Look at the current count (and whether the word exists)
-                        var exists = s.Bindings.TryGetValue(word, out int currentCount);
-                        
-                        // Deleting the entry: only generate a deletion event
-                        // if there was an entry present.
-                        if (delete)
-                            return exists
-                                ? svc.With(0, new ValueDeleted(word))
-                                : svc.With(0);
-                        
-                        // Incrementing the entry
-                        return svc.With(currentCount + 1, new ValueUpdated(word, currentCount + 1));
+                        var text = File.ReadAllText(path);
 
-                    }, CancellationToken.None)).More;
+                        if (text.Length > 65536)
+                            text = text.Substring(0, 65536);
 
-                    Console.WriteLine("{0} -> {1}", word, newCount);
+                        var id =
+                            await svc.AppendEventsAsync(
+                                state =>
+                                    svc.With(state.Documents.Count, new DocumentAdded(state.Documents.Count, path, text)),
+                                default);
+
+                        Console.WriteLine("Added document {0} = {1}", id.More, path);
+                    }
+
+                    continue;
+                }
+
+                if (line.StartsWith("find "))
+                {
+                    var word = line.Substring("find ".Length).ToLower();
+
+                    var state = await svc.CurrentState(default);
+                    if (!state.Index.TryGetValue(word, out var list))
+                    {
+                        Console.WriteLine("Word '{0}' appears in 0 documents", word);
+                        continue;
+                    }
+
+                    var docs = state.DocumentLists[list];
+                    Console.WriteLine("Word '{0}' appears in {1} documents", word, docs.Count);
+                    foreach (var doc in docs)
+                        Console.WriteLine("  {0}: {1}", doc, state.Documents[doc].Path);
+
+                    continue;
                 }
             }
 

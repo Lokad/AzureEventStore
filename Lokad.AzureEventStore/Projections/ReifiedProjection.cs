@@ -1,11 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Streams;
+using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -116,7 +119,7 @@ namespace Lokad.AzureEventStore.Projections
         /// Obviously, as this object does not support multi-threaded access,
         /// it should NOT be accessed in any way before the task has completed.
         /// </remarks>
-        public async Task TryLoadAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task TryLoadAsync(CancellationToken cancel = default)
         {
             if (_cacheProvider == null)
             {
@@ -124,13 +127,12 @@ namespace Lokad.AzureEventStore.Projections
                 return;
             }
 
-            Stream source;
-
             var sw = Stopwatch.StartNew();
 
+            IEnumerable<Task<CacheCandidate>> candidates;
             try
             {
-                source = await _cacheProvider.OpenReadAsync(Name);
+                candidates = await _cacheProvider.OpenReadAsync(Name);
             }
             catch (Exception ex)
             {
@@ -138,64 +140,81 @@ namespace Lokad.AzureEventStore.Projections
                 return;
             }
 
-            if (source == null)
+            foreach (var candidateTask in candidates)
             {
-                _log?.Info($"[{Name}] no cached data found.");
-                return;
-            }
-
-            try
-            {
-                // Load the sequence number from the input
-                uint seq;
-                using (var br = new BinaryReader(source, Encoding.UTF8, true))
-                    seq = br.ReadUInt32();
-
-                _log?.Debug($"[{Name}] cache is at seq {seq}.");
-
-                // Create a new stream to hide the write of the sequence numbers
-                // (at the top and the bottom of the stream).
-                var boundedStream = new BoundedStream(source, source.Length - 8);
-
-                // Load the state, which advances the stream
-                var state = await _projection.TryLoadAsync(boundedStream, cancel)
-                    .ConfigureAwait(false);
-
-                if (state == null)
+                CacheCandidate candidate;
+                try
                 {
-                    _log?.Warning($"[{Name}] projection could not parse cache.");
-                    return;
+                    candidate = await candidateTask;
+                }
+                catch (Exception ex)
+                {
+                    _log?.Warning($"[{Name}] error when opening cache.", ex);
+                    continue;
                 }
 
-                // Sanity check: is the same sequence number found at the end ? 
-                uint endseq;
-                using (var br = new BinaryReader(source, Encoding.UTF8, true))
-                    endseq = br.ReadUInt32();
+                _log?.Info($"[{Name}] reading cache {candidate.Name}");
 
-                if (endseq != seq)
+                var stream = candidate.Contents;
+                try
                 {
-                    _log?.Warning($"[{Name}] sanity-check seq is {endseq}.");
+
+                    // Load the sequence number from the input
+                    uint seq;
+                    using (var br = new BinaryReader(stream, Encoding.UTF8, true))
+                        seq = br.ReadUInt32();
+
+                    _log?.Debug($"[{Name}] cache is at seq {seq}.");
+
+                    // Create a new stream to hide the write of the sequence numbers
+                    // (at the top and the bottom of the stream).
+                    var boundedStream = new BoundedStream(stream, stream.Length - 8);
+
+                    // Load the state, which advances the stream
+                    var state = await _projection.TryLoadAsync(boundedStream, cancel)
+                        .ConfigureAwait(false);
+
+                    if (state == null)
+                    {
+                        _log?.Warning($"[{Name}] projection could not parse cache {candidate.Name}");
+                        continue;
+                    }
+
+                    // Sanity check: is the same sequence number found at the end ? 
+                    uint endseq;
+                    using (var br = new BinaryReader(stream, Encoding.UTF8, true))
+                        endseq = br.ReadUInt32();
+
+                    if (endseq != seq)
+                    {
+                        _log?.Warning($"[{Name}] sanity-check seq is {endseq} in cache {candidate.Name}");
+                        continue;
+                    }
+
+                    _log?.Info($"[{Name}] loaded {stream.Length} bytes in {sw.Elapsed:mm':'ss'.'fff} from cache {candidate.Name}");
+
+                    Current = state;
+                    Sequence = seq;
                     return;
+
+                    // Do NOT set _possiblyInconsistent to false here ! 
+                    // Inconsistency can have external causes, e.g. event read
+                    // failure, that are not automagically solved by loading from cache.
                 }
-
-                _log?.Info($"[{Name}] loaded from cache in {sw.Elapsed:mm':'ss'.'fff}.");
-
-                Current = state;
-                Sequence = seq;
-
-                // Do NOT set _possiblyInconsistent to false here ! 
-                // Inconsistency can have external causes, e.g. event read
-                // failure, that are not automagically solved by loading from cache.
-            }
-            catch (EndOfStreamException)
-            {
-                _log?.Warning($"[{Name}] cache is incomplete.");
-                // Incomplete streams are simply treated as missing
-            }
-            catch (Exception ex)
-            {
-                _log?.Warning($"[{Name}] could not parse cache.", ex);
-                throw;
+                catch (EndOfStreamException)
+                {
+                    _log?.Warning($"[{Name}] incomplete cache {candidate.Name}");
+                    // Incomplete streams are simply treated as missing
+                }
+                catch (Exception ex)
+                {
+                    _log?.Warning($"[{Name}] could not parse cache {candidate.Name}", ex);
+                    // If a cache file cannot be parsed, try the next one
+                }
+                finally
+                {
+                    stream.Dispose();
+                }
             }
         }
 
@@ -204,7 +223,7 @@ namespace Lokad.AzureEventStore.Projections
         /// The returned task does not access the object in any way, so the object
         /// may be safely accessed before the task has finished executing.
         /// </remarks>
-        public async Task TrySaveAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task TrySaveAsync(CancellationToken cancel = default)
         {
             if (_possiblyInconsistent)
             {
@@ -223,52 +242,65 @@ namespace Lokad.AzureEventStore.Projections
 
             _log?.Debug($"[{Name}] saving to seq {sequence}.");
 
-            Stream destination;
             var sw = Stopwatch.StartNew();
 
+            var wrote = 0L;
             try
             {
-                destination = await _cacheProvider.OpenWriteAsync(Name);
+                await _cacheProvider.TryWriteAsync(Name, async destination =>
+                {
+                    try
+                    {
+                        using (destination)
+                        {
+                            using (var wr = new BinaryWriter(destination, Encoding.UTF8, true))
+                                wr.Write(sequence);
+
+                            if (!await _projection.TrySaveAsync(destination, current, cancel))
+                            {
+                                _log?.Warning($"[{Name}] projection failed to save.");
+                                throw new Exception("INTERNAL.DO.NOT.SAVE");
+                            }
+
+                            if (!destination.CanWrite)
+                                throw new Exception("Projection saving closed the stream ! ");
+
+                            using (var wr = new BinaryWriter(destination, Encoding.UTF8, true))
+                                wr.Write(sequence);
+
+                            wrote = destination.Position;
+                        }
+                    }
+                    catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") { }
+                    catch (Exception e)
+                    {
+                        _log?.Warning($"[{Name}] while saving to cache.", e);
+                        throw new Exception("INTERNAL.DO.NOT.SAVE", e);
+                    }
+
+                }).ConfigureAwait(false);
+
+                if (wrote == 0)
+                {
+                    _log?.Warning($"[{Name}] caching is disabled for this projection.");
+                }
+                else
+                {
+                    _log?.Info($"[{Name}] saved {wrote} bytes to cache in {sw.Elapsed:mm':'ss'.'fff}.");
+                }
+            }
+            catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") 
+            {
+                // The inner function asked us not to save, and already logged the reason.
+                // But if an inner exception is included, throw it (preserving the existing
+                // stack trace).
+                if (e.InnerException != null)
+                    ExceptionDispatchInfo.Capture(e.InnerException).Throw();
             }
             catch (Exception ex)
             {
                 _log?.Warning($"[{Name}] when opening write cache.", ex);
-                throw;
             }
-
-            if (destination == null)
-            {
-                _log?.Warning($"[{Name}] caching is disabled for this projection.");
-                return;
-            }
-
-            try
-            {
-                using (destination)
-                {
-                    using (var wr = new BinaryWriter(destination, Encoding.UTF8, true))
-                        wr.Write(sequence);
-
-                    if (!await _projection.TrySaveAsync(destination, current, cancel))
-                    {
-                        _log?.Warning($"[{Name}] projection failed to save.");
-                        return;
-                    }
-
-                    if (!destination.CanWrite)
-                        throw new Exception("Projection saving closed the stream ! ");
-
-                    using (var wr = new BinaryWriter(destination, Encoding.UTF8, true))
-                        wr.Write(sequence);
-                }
-            }
-            catch (Exception e)
-            {
-                _log?.Warning($"[{Name}] while saving to cache.", e);
-                throw;
-            }
-
-            _log?.Info($"[{Name}] saved in cache in {sw.Elapsed:mm':'ss'.'fff}.");
         }
     }
 }

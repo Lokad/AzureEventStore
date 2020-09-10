@@ -22,9 +22,18 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  
+  <!-- When developing locally, comment out this block and uncomment the one below it. -->
   <ItemGroup>
+    <PackageReference Include="Lokad.AzureEventStore" Version="5.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="1.0.0" />
+  </ItemGroup>
+  <!--
+  <ItemGroup>
+    <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
   </ItemGroup>
+  -->
   <ItemGroup>
     <Reference Include="System" />
   </ItemGroup>

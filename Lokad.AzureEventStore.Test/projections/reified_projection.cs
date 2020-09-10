@@ -30,7 +30,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var reified = Make(projection.Object);
             
             Assert.Equal("initial", reified.Current);
-            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal(0U, reified.Sequence);
         }
 
         [Fact]
@@ -106,12 +106,12 @@ namespace Lokad.AzureEventStore.Test.projections
             var reified = Make(projection.Object);
             
             Assert.Equal("I", reified.Current);
-            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal(0U, reified.Sequence);
 
             reified.Apply(1U, 13);
 
             Assert.Equal("I(13:1)", reified.Current);
-            Assert.Equal((uint) 1U, (uint) reified.Sequence);
+            Assert.Equal(1U, reified.Sequence);
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace Lokad.AzureEventStore.Test.projections
             reified.Apply(4U, 42);
 
             Assert.Equal("I(13:1)(42:4)", reified.Current);
-            Assert.Equal((uint) 4U, (uint) reified.Sequence);
+            Assert.Equal(4U, reified.Sequence);
         }
 
         [Fact]
@@ -156,7 +156,7 @@ namespace Lokad.AzureEventStore.Test.projections
             }
 
             Assert.Equal("I", reified.Current);
-            Assert.Equal((uint)1U, (uint)reified.Sequence);
+            Assert.Equal(1U, reified.Sequence);
         }
 
         [Fact]
@@ -190,13 +190,12 @@ namespace Lokad.AzureEventStore.Test.projections
         [Fact]
         public async Task load_state()
         {
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("test")), new MemoryStream(new byte[]
-                {
-                    0x02, 0x00, 0x00, 0x00, // Current position (beginning)
-                    0x30, 0x30, 0x30, 0x30, // Event data "0000"
-                    0x02, 0x00, 0x00, 0x00  // Current position (end)
-                }));
+            var cache = new Testing.InMemoryCache { { "test", new byte[]
+            {
+                0x02, 0x00, 0x00, 0x00, // Current position (beginning)
+                0x30, 0x30, 0x30, 0x30, // Event data "0000"
+                0x02, 0x00, 0x00, 0x00  // Current position (end)
+            } } };
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("I");
@@ -211,24 +210,23 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(Encoding.UTF8.GetString(bytes)); 
                 });
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.Equal((uint) 2U, (uint) reified.Sequence);
+            Assert.Equal(2U, reified.Sequence);
             Assert.Equal("0000", reified.Current);
         }
 
         [Fact]
         public async Task load_state_bad_terminator()
         {
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("test")), new MemoryStream(new byte[]
-                {
-                    0x02, 0x00, 0x00, 0x00, // Current position (beginning)
-                    0x30, 0x30, 0x30, 0x30, // Event data "0000"
-                    0x01, 0x00, 0x00, 0x00  // Current position (end)
-                }));
+            var cache = new Testing.InMemoryCache { { "test", new byte[]
+            {
+                0x02, 0x00, 0x00, 0x00, // Current position (beginning)
+                0x30, 0x30, 0x30, 0x30, // Event data "0000"
+                0x01, 0x00, 0x00, 0x00  // Current position (end)
+            } } };
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("I");
@@ -236,24 +234,23 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal(0U, reified.Sequence);
             Assert.Equal("I", reified.Current);
         }
 
         [Fact]
         public async Task load_state_truncated()
         {
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("test")), new MemoryStream(new byte[]
-                {
-                    0x02, 0x00, 0x00, 0x00, // Current position (beginning)
-                    0x30, 0x30, 0x30, 0x30, // Event data "0000"
-                    0x01, 0x00              // Current position (end)
-                }));
+            var cache = new Testing.InMemoryCache { { "test", new byte[]
+            {
+                0x02, 0x00, 0x00, 0x00, // Current position (beginning)
+                0x30, 0x30, 0x30, 0x30, // Event data "0000"
+                0x01, 0x00              // Current position (end)
+            } } };
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("I");
@@ -261,27 +258,27 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             await reified.TryLoadAsync(CancellationToken.None);
 
-            Assert.Equal((uint) 0U, (uint) reified.Sequence);
+            Assert.Equal(0U, reified.Sequence);
             Assert.Equal("I", reified.Current);
         }
 
         [Fact]
         public async Task load_state_bad_name()
         {
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("test")), new MemoryStream(new byte[]
+            var cache = new Testing.InMemoryCache
+            {
+                { "test", new byte[]
                 {
                     0x02, 0x00, 0x00, 0x00, // Current position (beginning)
                     0x30, 0x30, 0x30, 0x30, // Event data "0000"
                     0x02, 0x00, 0x00, 0x00  // Current position (end)
-                }));
-
-
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("other")), new MemoryStream(new byte[0]));
+                } },
+                { "other", new byte[0] }
+            };
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("I");
@@ -289,44 +286,9 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             await reified.TryLoadAsync(CancellationToken.None);
-
-            Assert.Equal((uint) 0U, (uint) reified.Sequence);
-            Assert.Equal("I", reified.Current);
-        }
-
-
-        [Fact]
-        public async Task load_state_sream_throws()
-        {
-            var stream = new Mock<Stream>();
-            stream.Setup(s => s.Read(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>()))
-                .Throws(new Exception("Stream.Read"));
-
-            stream.Setup(s => s.CanRead).Returns(true);
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenReadAsync("test")), stream.Object);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
-
-            var reified = Make(projection.Object, cache.Object);
-
-            try
-            {
-                await reified.TryLoadAsync(CancellationToken.None);
-                Assert.True(false);
-            }
-            catch (Exception e)
-            {
-                Assert.Equal("Stream.Read", e.Message);
-            }
 
             Assert.Equal(0U, reified.Sequence);
             Assert.Equal("I", reified.Current);
@@ -339,167 +301,7 @@ namespace Lokad.AzureEventStore.Test.projections
         [Fact]
         public async Task save()
         {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Returns<Stream, string, CancellationToken>((s, state, c) =>
-                {
-                    var bytes = Encoding.UTF8.GetBytes((string) state);
-                    s.Write(bytes, 0, bytes.Length);
-                    return Task.FromResult(true);
-                });
-
-            var reified = Make(projection.Object, cache.Object);
-
-            await reified.TrySaveAsync(CancellationToken.None);
-
-            Assert.Equal(new byte[]
-            {
-                0x00, 0x00, 0x00, 0x00, // Sequence number (first)
-                0x30, // Contents "0"
-                0x00, 0x00, 0x00, 0x00 // Sequence number (last)
-            }, ms.ToArray());
-        }
-
-        [Fact]
-        public async Task save_failed()
-        {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Returns<Stream, string, CancellationToken>((s, state, c) =>
-                {
-                    var bytes = Encoding.UTF8.GetBytes((string) state);
-                    s.Write(bytes, 0, bytes.Length);
-                    return Task.FromResult(false);
-                });
-
-            var reified = Make(projection.Object, cache.Object);
-
-            await reified.TrySaveAsync(CancellationToken.None);
-
-            Assert.Equal(new byte[]
-            {
-                0x00, 0x00, 0x00, 0x00, // Sequence number (first)
-                0x30, // Contents "0"
-                // Cut short
-            }, ms.ToArray());
-        }
-
-        [Fact]
-        public async Task save_throws()
-        {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Throws(new Exception("Projection.TrySaveAsync"));
-
-            var reified = Make(projection.Object, cache.Object);
-
-            try
-            {
-                await reified.TrySaveAsync(CancellationToken.None);
-                Assert.True(false);
-            }
-            catch (Exception e)
-            {
-                Assert.Equal("Projection.TrySaveAsync", e.Message);
-            }
-
-            Assert.Equal(new byte[]
-            {
-                0x00, 0x00, 0x00, 0x00, // Sequence number (first)
-                // Cut short
-            }, ms.ToArray());
-        }
-
-        [Fact]
-        public async Task save_write_throws()
-        {
-            var stream = new Mock<Stream>();
-            stream.Setup(s => s.Write(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>()))
-                .Throws(new Exception("Stream.Write"));
-
-            stream.Setup(s => s.CanWrite).Returns(true);
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), stream.Object);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Throws(new Exception("Projection.TrySaveAsync"));
-
-            var reified = Make(projection.Object, cache.Object);
-
-            try
-            {
-                await reified.TrySaveAsync(CancellationToken.None);
-                Assert.True(false);
-            }
-            catch (Exception e)
-            {
-                Assert.Equal("Stream.Write", e.Message);
-            }
-        }
-
-        [Fact]
-        public async Task save_inconsistent()
-        {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
-
-            var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
-            projection.Setup(p => p.FullName).Returns("test");
-            projection.Setup(p => p.State).Returns(typeof(string));
-            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Throws(new Exception("Projection.TrySaveAsync"));
-
-            var reified = Make(projection.Object, cache.Object);
-
-            reified.SetPossiblyInconsistent();
-
-            await reified.TrySaveAsync(CancellationToken.None);
-
-            Assert.Equal(new byte[]
-            {
-                // Cut short
-            }, ms.ToArray());
-        }
-
-        [Fact]
-        public async Task save_reset_inconsistent()
-        {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
+            var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("0");
@@ -513,7 +315,115 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(true);
                 });
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
+
+            await reified.TrySaveAsync(CancellationToken.None);
+
+            Assert.Equal(new byte[]
+            {
+                0x00, 0x00, 0x00, 0x00, // Sequence number (first)
+                0x30, // Contents "0"
+                0x00, 0x00, 0x00, 0x00 // Sequence number (last)
+            }, cache.Streams["test"].ToArray());
+        }
+
+        [Fact]
+        public async Task save_failed()
+        {
+            var cache = new Testing.InMemoryCache();
+
+            var projection = new Mock<IProjection<int, string>>();
+            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.State).Returns(typeof(string));
+            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns<Stream, string, CancellationToken>((s, state, c) =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes(state);
+                    s.Write(bytes, 0, bytes.Length);
+                    return Task.FromResult(false);
+                });
+
+            var reified = Make(projection.Object, cache);
+
+            await reified.TrySaveAsync(CancellationToken.None);
+
+            Assert.Equal(new byte[]
+            {
+                0x00, 0x00, 0x00, 0x00, // Sequence number (first)
+                0x30, // Contents "0"
+                // Cut short
+            }, cache.Streams["test"].ToArray());
+        }
+
+        [Fact]
+        public async Task save_throws()
+        {
+            var cache = new Testing.InMemoryCache();
+
+            var projection = new Mock<IProjection<int, string>>();
+            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.State).Returns(typeof(string));
+            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Throws(new Exception("Projection.TrySaveAsync"));
+
+            var reified = Make(projection.Object, cache);
+
+            try
+            {
+                await reified.TrySaveAsync(CancellationToken.None);
+                Assert.True(false);
+            }
+            catch (Exception e)
+            {
+                Assert.Equal("Projection.TrySaveAsync", e.Message);
+            }
+
+            Assert.Empty(cache.Streams);
+        }
+
+        [Fact]
+        public async Task save_inconsistent()
+        {
+            var ms = new MemoryStream();
+
+            var cache = new Testing.InMemoryCache();
+
+            var projection = new Mock<IProjection<int, string>>();
+            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.State).Returns(typeof(string));
+            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Throws(new Exception("Projection.TrySaveAsync"));
+
+            var reified = Make(projection.Object, cache);
+
+            reified.SetPossiblyInconsistent();
+
+            await reified.TrySaveAsync(CancellationToken.None);
+
+            Assert.False(cache.Streams.ContainsKey("test"));
+        }
+
+        [Fact]
+        public async Task save_reset_inconsistent()
+        {
+            var cache = new Testing.InMemoryCache();
+
+            var projection = new Mock<IProjection<int, string>>();
+            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.State).Returns(typeof(string));
+            projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns<Stream, string, CancellationToken>((s, state, c) =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes(state);
+                    s.Write(bytes, 0, bytes.Length);
+                    return Task.FromResult(true);
+                });
+
+            var reified = Make(projection.Object, cache);
             reified.SetPossiblyInconsistent();
             reified.Reset();
 
@@ -524,16 +434,13 @@ namespace Lokad.AzureEventStore.Test.projections
                 0x00, 0x00, 0x00, 0x00, // Sequence number (first)
                 0x30, // Contents "0"
                 0x00, 0x00, 0x00, 0x00 // Sequence number (last)
-            }, ms.ToArray());
+            }, cache.Streams["test"].ToArray());
         }
 
         [Fact]
         public virtual async Task save_auto_inconsistent()
         {
-            var ms = new MemoryStream();
-
-            var cache = new Mock<IProjectionCacheProvider>();
-            ReturnsExtensions.ReturnsAsync(cache.Setup(c => c.OpenWriteAsync("test")), ms);
+            var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial).Returns("0");
@@ -545,16 +452,13 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, cache.Object);
+            var reified = Make(projection.Object, cache);
 
             try { reified.Apply(1U, 13); /* Sets 'inconsistent' */ } catch {}
 
             await reified.TrySaveAsync(CancellationToken.None);
 
-            Assert.Equal(new byte[]
-            {
-                // Cut short
-            }, ms.ToArray());
+            Assert.Empty(cache.Streams);
         }
 
         #endregion

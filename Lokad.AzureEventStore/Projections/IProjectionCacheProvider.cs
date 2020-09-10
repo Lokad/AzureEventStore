@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace Lokad.AzureEventStore.Projections
@@ -10,16 +12,27 @@ namespace Lokad.AzureEventStore.Projections
     public interface IProjectionCacheProvider
     {
         /// <summary>
-        /// Open a reading stream for the projection with the specified
-        /// full name, or <c>null</c> if data is not available.
+        ///     Attempts to open a reading stream for the projection with the 
+        ///     specified name.
         /// </summary>
-        Task<Stream> OpenReadAsync(string fullname);
+        /// <remarks>
+        ///     Enumerating the returned enumerable will open reading streams
+        ///     one after another, by decreasing priority (i.e. the most recent
+        ///     streams are opened first). 
+        ///     
+        ///     The caller MUST wait for the task to complete and dispose each 
+        ///     stream before moving to the next element in the enumeration.
+        ///     
+        ///     The key associated with each stream is a name that describes the
+        ///     type of stream (blob, file, etc.) and its creation date.
+        /// </remarks>
+        Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string stateName);
 
         /// <summary>
-        /// Open an (initially empty) writing stream for the projection 
-        /// with the specified full name, or <c>null</c> if caching is
-        /// disabled.
+        ///     Open an (initially empty) writing stream for the projection 
+        ///     with the specified full name, and invoke the provided method. 
+        ///     Will do nothing if cache is not writable.
         /// </summary>        
-        Task<Stream> OpenWriteAsync(string fullname);
+        Task TryWriteAsync(string stateName, Func<Stream, Task> write);
     }
 }

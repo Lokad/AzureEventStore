@@ -13,13 +13,16 @@ namespace Lokad.AzureEventStore.Streams
     /// </remarks>
     public sealed class BoundedStream : Stream
     {
-        private readonly Stream _stream;
-        private readonly long _offset;
+        /// <summary> The wrapped stream. </summary>
+        public readonly Stream InnerStream;
+
+        /// <summary> The offset of the start of the window. </summary>
+        public readonly long Offset;
 
         public BoundedStream(Stream stream, long length)
         {
-            _stream = stream;
-            _offset = _stream.Position;
+            InnerStream = stream;
+            Offset = InnerStream.Position;
             Length = length;
 
             if (length < 0)
@@ -33,14 +36,14 @@ namespace Lokad.AzureEventStore.Streams
 
         public override long Position
         {
-            get => _stream.Position - _offset;
+            get => InnerStream.Position - Offset;
             set => throw new NotSupportedException();
         }
 
         protected override void Dispose(bool disposing)
         {
             if (!disposing) return;
-            _stream.Dispose();
+            InnerStream.Dispose();
         }
 
         public override void Flush() { }
@@ -50,26 +53,29 @@ namespace Lokad.AzureEventStore.Streams
         /// </summary>
         private int Clip(int count)
         {
-            var off = _stream.Position - _offset;
+            var off = InnerStream.Position - Offset;
             return Length - off >= count ? count : (int)(Length - off);
         }
 
         public override int Read(byte[] buffer, int offset, int count) =>
-            _stream.Read(buffer, offset, Clip(count));
+            InnerStream.Read(buffer, offset, Clip(count));
 
 #if NET462
         public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state) =>
-            _stream.BeginRead(buffer, offset, Clip(count), callback, state);
+            InnerStream.BeginRead(buffer, offset, Clip(count), callback, state);
 
         public override int EndRead(IAsyncResult asyncResult) =>
-            _stream.EndRead(asyncResult);
+            InnerStream.EndRead(asyncResult);
 #endif
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-            _stream.ReadAsync(buffer, offset, Clip(count), cancellationToken);
+            InnerStream.ReadAsync(buffer, offset, Clip(count), cancellationToken);
 
         public override long Seek(long offset, SeekOrigin origin) =>
-            throw new NotSupportedException();
+            (InnerStream.Position =
+                origin == SeekOrigin.Begin ? offset + Offset :
+                origin == SeekOrigin.End ? Offset + Length - offset :
+                Offset + offset) - Offset;
 
         public override void SetLength(long value) =>
             throw new NotSupportedException();

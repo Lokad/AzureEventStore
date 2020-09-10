@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -78,27 +79,45 @@ namespace Lokad.AzureEventStore
         }
 
         /// <summary> Saves projection state to memory.  </summary>
-        public sealed class InMemoryCache : IProjectionCacheProvider
+        public sealed class InMemoryCache : IProjectionCacheProvider, IEnumerable<KeyValuePair<string, MemoryStream>>
         {
-            private readonly Dictionary<string, MemoryStream> _streams = new Dictionary<string, MemoryStream>();
-            
+            public readonly Dictionary<string, MemoryStream> Streams = new Dictionary<string, MemoryStream>();
+
             /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
-            public Task<Stream> OpenReadAsync(string fullname)
+            public Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string fullname)
             {
                 MemoryStream stream;
-                if (!_streams.TryGetValue(fullname, out stream)) return Task.FromResult<Stream>(null);
-                
-                return Task.FromResult<Stream>(new MemoryStream(stream.ToArray()));
+                if (!Streams.TryGetValue(fullname, out stream)) 
+                    return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(Array.Empty<Task<CacheCandidate>>());
+
+                return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(new[] {
+                    Task.FromResult(new CacheCandidate(
+                        "in-memory",
+                        new MemoryStream(stream.ToArray())))
+                });
             }
 
-            /// <see cref="IProjectionCacheProvider.OpenWriteAsync"/>
-            public Task<Stream> OpenWriteAsync(string fullname)
+            /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
+            public async Task TryWriteAsync(string fullname, Func<Stream, Task> write)
             {
                 var ms = new MemoryStream();
-                _streams[fullname] = ms;
+                await write(ms);
 
-                return Task.FromResult<Stream>(ms);
+                // Only executed if 'write()' does not throw.
+                Streams[fullname] = ms;
             }
+
+            public InMemoryCache() { }
+
+            public void Add(string key, byte[] bytes)
+            {
+                Streams.Add(key, new MemoryStream(bytes));
+            }
+
+            public IEnumerator<KeyValuePair<string, MemoryStream>> GetEnumerator() =>
+                Streams.GetEnumerator();
+
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
     }
 }
