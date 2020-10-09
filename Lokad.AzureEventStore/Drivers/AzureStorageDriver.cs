@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -62,7 +63,7 @@ namespace Lokad.AzureEventStore.Drivers
         {
             // Download the complete list of blobs from the server. It's easier to 
             // perform processing in-memory rather than streaming through the listing.
-            var newBlobs = await AzureHelpers.RetryAsync(cancel, _container.ListEventBlobsAsync);
+            var newBlobs = await AzureHelpers.RetryAsync(cancel, false, _container.ListEventBlobsAsync);
 
             if (newBlobs.Count == 0)
                 // This is an empty stream.
@@ -122,7 +123,7 @@ namespace Lokad.AzureEventStore.Drivers
                     .Select(async pos =>
                     {
                         var buffer = new byte[6];
-                        await ReadSubRangeAsync(_blobs[pos], buffer, 0, 0, 6, cancel);
+                        await ReadSubRangeAsync(_blobs[pos], buffer, 0, 0, 6, false, cancel);
                         _firstKey[pos] = buffer[2]
                                          + ((uint)buffer[3] << 8)
                                          + ((uint)buffer[4] << 16)
@@ -351,14 +352,28 @@ namespace Lokad.AzureEventStore.Drivers
             while (maxBytes > 2 * maxSliceSize)
             {
                 todo = todo ?? new List<Task<int>>();
-                todo.Add(ReadSubRangeAsync(blob, _buffer, start, bufferStart, maxSliceSize, cancel));
+                todo.Add(ReadSubRangeAsync(
+                    blob, 
+                    _buffer, 
+                    start, 
+                    bufferStart, 
+                    maxSliceSize, 
+                    true,
+                    cancel));
 
                 maxBytes -= maxSliceSize;
                 start += maxSliceSize;
                 bufferStart += maxSliceSize;
             }
 
-            var length = bufferStart + await ReadSubRangeAsync(blob, _buffer, start, bufferStart, maxBytes, cancel).ConfigureAwait(false);
+            var length = bufferStart + await ReadSubRangeAsync(
+                blob, 
+                _buffer, 
+                start, 
+                bufferStart, 
+                maxBytes, 
+                blob.Properties.Length >= start + maxBytes, 
+                cancel).ConfigureAwait(false);
 
             if (todo != null)
             {
@@ -378,7 +393,8 @@ namespace Lokad.AzureEventStore.Drivers
         /// </summary>
         /// <returns>
         ///      Total bytes read, may be smaller than requested, but only if there were 
-        ///      not enough bytes in the blob.
+        ///      not enough bytes in the blob. <paramref name="likelyLong"/> will be true
+        ///      if the caller expects the maxBytes to be reached by the read.
         /// </returns>
         private static async Task<int> ReadSubRangeAsync(
             CloudBlob blob,
@@ -386,13 +402,14 @@ namespace Lokad.AzureEventStore.Drivers
             long start,
             int bufferStart,
             long maxBytes,
+            bool likelyLong,
             CancellationToken cancel)
         {
             while (true)
             {
                 try
                 {
-                    return await AzureHelpers.RetryAsync(cancel, c => 
+                    return await AzureHelpers.RetryAsync(cancel, likelyLong, c =>
                         blob.DownloadRangeToByteArrayAsync(
                             buffer,
                             bufferStart,
@@ -430,7 +447,14 @@ namespace Lokad.AzureEventStore.Drivers
             // requires that the last event in the buffer isn't truncated.
             var length = Math.Min(EventFormat.MaxEventFootprint, blob.Properties.Length);
             var bytes = new byte[length];
-            await ReadSubRangeAsync(blob, bytes, blob.Properties.Length - length, 0, length, cancel);
+            await ReadSubRangeAsync(
+                blob, 
+                bytes, 
+                blob.Properties.Length - length, 
+                0, 
+                length, 
+                false, 
+                cancel);
 
             // Look for the sequence number of the last event.
             using (var stream = new MemoryStream(bytes))
@@ -533,6 +557,7 @@ namespace Lokad.AzureEventStore.Drivers
                             blobOffset,
                             used,
                             Math.Min(buffer.Length - used, blobLength - blobOffset),
+                            true,
                             CancellationToken.None);
 
                         used += read;

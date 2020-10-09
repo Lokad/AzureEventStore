@@ -56,17 +56,28 @@ namespace Lokad.AzureEventStore.Drivers
 
         /// <summary>
         ///     Retry an operation without side-effects, if it was 1. interrupted by 
-        ///     a HTTP 500 error or 2. took longer than 10 seconds (this can happen when 
+        ///     a HTTP 500 error or 2. took longer than 60 seconds (this can happen when 
         ///     Azure Blob Storage 'loses' a request and takes up to several minutes to 
-        ///     fail it, in which case an immediate retry usually succeeds).
+        ///     fail it, in which case an immediate retry usually succeeds). If 
+        ///     <paramref name="likelyLong"/> is false, then on the first attempt the 
+        ///     limit is decreased to 3 seconds instead.
         /// </summary>
         public static async Task<T> RetryAsync<T>(
             CancellationToken cancel,
+            bool likelyLong,
             Func<CancellationToken, Task<T>> retried)
         {
             for (var retry = 5;; --retry)
             {
-                using (var delay = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+                var delayDuration = likelyLong
+                    ? TimeSpan.FromSeconds(60) 
+                    : TimeSpan.FromSeconds(3);
+
+                // If the first request did not succeed, we need to prepare for the possibility
+                // of a long request.
+                likelyLong = true;
+
+                using (var delay = new CancellationTokenSource(delayDuration))
                 {
                     using (var race = CancellationTokenSource.CreateLinkedTokenSource(delay.Token, cancel))
                     {
