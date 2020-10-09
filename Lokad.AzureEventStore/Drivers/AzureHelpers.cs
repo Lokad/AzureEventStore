@@ -82,6 +82,15 @@ namespace Lokad.AzureEventStore.Drivers
                             continue;
                         }
                         catch (StorageException e)
+                            when (e.InnerException is OperationCanceledException && 
+                                  !cancel.IsCancellationRequested && retry > 0)
+                        {
+                            // Cancellation due to 'delay' or internal timeout, 
+                            // not the original 'cancel' (and was wrapped by the Azure Storage
+                            // library in a StorageException). 
+                            continue;
+                        }
+                        catch (StorageException e)
                             when (e.RequestInformation.HttpStatusCode >= 500 && retry > 0)
                         {
                             // Cancellation due to HTTP 500
