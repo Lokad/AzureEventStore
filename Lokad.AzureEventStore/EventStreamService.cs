@@ -305,5 +305,28 @@ namespace Lokad.AzureEventStore
         /// <summary> Attempt to save the projection to the cache. </summary>
         public Task TrySaveAsync(CancellationToken cancel = default) =>
             Wrapper.TrySaveAsync(cancel);
+
+        /// <summary>
+        ///     The number of events to be passed to the projection before
+        ///     attempting a save/load cycle of the projection.
+        /// </summary>
+        /// <remarks>
+        ///     Due to performance considerations, this number may be slightly 
+        ///     exceeded by a few *tens of thousands* of events.
+        ///     
+        ///     The save/load cycle is attempted ; if saving fails, failure is
+        ///     ignored and stream loading continues. If saving succeeds but 
+        ///     loading fails, the stream service enters a fully broken state.
+        ///     
+        ///     Events are only counted during a continuous catch-up phase. 
+        ///     Every time the projection catches up with the stream, the 
+        ///     event count is reset to zero. This means that this limit is 
+        ///     really only expected to be hit during the initial catch-up.
+        /// </remarks>
+        public uint EventsBetweenCacheSaves
+        {
+            get => Wrapper.EventsBetweenCacheSaves;
+            set => Wrapper.EventsBetweenCacheSaves = value;
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
@@ -54,6 +55,25 @@ namespace Lokad.AzureEventStore.Wrapper
         ///     that have not completed yet.
         /// </remarks>
         public bool WaitingForState => _waitForState != null;
+
+        /// <summary>
+        ///     The number of events to be passed to the projection before
+        ///     attempting a save/load cycle of the projection.
+        /// </summary>
+        /// <remarks>
+        ///     Due to performance considerations, this number may be slightly 
+        ///     exceeded by a few *tens of thousands* of events.
+        ///     
+        ///     The save/load cycle is attempted ; if saving fails, failure is
+        ///     ignored and stream loading continues. If saving succeeds but 
+        ///     loading fails, the stream service enters a fully broken state.
+        ///     
+        ///     Events are only counted during a continuous catch-up phase. 
+        ///     Every time the projection catches up with the stream, the 
+        ///     event count is reset to zero. This means that this limit is 
+        ///     really only expected to be hit during the initial catch-up.
+        /// </remarks>
+        public uint EventsBetweenCacheSaves { get; set; } = uint.MaxValue;
 
         /// <summary>
         ///     Waits for the next time that the system catches up to the last event 
@@ -151,9 +171,13 @@ namespace Lokad.AzureEventStore.Wrapper
         }
 
         /// <summary> Catch up with locally stored data, without remote fetches. </summary>
-        private void CatchUpLocal()
+        /// <returns>
+        ///     The number of events that have been passed to the projection.
+        /// </returns>
+        private uint CatchUpLocal()
         {
             var caughtUpWithProjection = false;
+            var eventsPassedToProjection = 0u;
 
             while (true)
             {
@@ -186,6 +210,8 @@ namespace Lokad.AzureEventStore.Wrapper
                     caughtUpWithProjection = true;
                     try
                     {
+                        ++eventsPassedToProjection;
+
                         // This might throw due to event processing issues
                         //  by one or more projection components
                         _projection.Apply(seq, nextEvent);
@@ -198,6 +224,8 @@ namespace Lokad.AzureEventStore.Wrapper
                     }
                 }
             }
+
+            return eventsPassedToProjection;
         }
 
         /// <summary>
@@ -208,6 +236,9 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             Func<bool> finishFetch;
 
+            // Local variable, to avoid reaching the limit when not doing the
+            // initial catch-up.
+            var eventsSinceLastCacheLoad = 0u;
             do
             {
                 var fetchTask = Stream.BackgroundFetchAsync(cancel);
@@ -218,7 +249,28 @@ namespace Lokad.AzureEventStore.Wrapper
                 // when fetching events takes longer than processing them,
                 // and remains safe (i.e. no runaway memory usage) when 
                 // the reverse is true.
-                CatchUpLocal();
+                eventsSinceLastCacheLoad += CatchUpLocal();
+
+                // Maybe we have reached the event count limit before our 
+                // save/load cycle ?
+                if (eventsSinceLastCacheLoad >= EventsBetweenCacheSaves)
+                {
+                    eventsSinceLastCacheLoad = 0;
+                    var sw = Stopwatch.StartNew();
+                    if (await _projection.TrySaveAsync(cancel))
+                    {
+                        // Reset first, to release any used memory.
+                        _projection.Reset();
+
+                        await _projection.TryLoadAsync(cancel);
+                        
+                        if (_projection.Sequence != Stream.Sequence)
+                            throw new InvalidOperationException(
+                                "Projection Save/Load cycle failed to restore sequence.");
+
+                        _log.Info($"[ES read] cache save/load cycle in {sw.Elapsed} at seq {_projection.Sequence}.");
+                    }
+                }
 
                 finishFetch = await fetchTask;
 

@@ -220,21 +220,24 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> Attempt to save this projection to the destination stream. </summary>
         /// <remarks>
-        /// The returned task does not access the object in any way, so the object
-        /// may be safely accessed before the task has finished executing.
+        ///     The returned task does not access the projection in any way, so the 
+        ///     projection may be safely accessed before the task has finished executing.
         /// </remarks>
-        public async Task TrySaveAsync(CancellationToken cancel = default)
+        /// <returns>
+        ///     True if saving was successful, false if it failed.
+        /// </returns>
+        public async Task<bool> TrySaveAsync(CancellationToken cancel = default)
         {
             if (_possiblyInconsistent)
             {
                 _log?.Warning($"[{Name}] state is possibly inconsistent, not saving.");
-                return;
+                return false;
             }
 
             if (_cacheProvider == null)
             {
                 _log?.Warning($"[{Name}] no write cache provider !");
-                return;
+                return false;
             }
 
             var sequence = Sequence;
@@ -288,6 +291,8 @@ namespace Lokad.AzureEventStore.Projections
                 {
                     _log?.Info($"[{Name}] saved {wrote} bytes to cache in {sw.Elapsed:mm':'ss'.'fff}.");
                 }
+
+                return true;
             }
             catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") 
             {
@@ -296,10 +301,13 @@ namespace Lokad.AzureEventStore.Projections
                 // stack trace).
                 if (e.InnerException != null)
                     ExceptionDispatchInfo.Capture(e.InnerException).Throw();
+
+                return false;
             }
             catch (Exception ex)
             {
                 _log?.Warning($"[{Name}] when opening write cache.", ex);
+                return false;
             }
         }
     }

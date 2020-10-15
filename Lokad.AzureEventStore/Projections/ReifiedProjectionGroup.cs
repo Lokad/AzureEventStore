@@ -136,9 +136,12 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> The current state of the projections. </summary>
         public TState Current => _current.Value;
 
-        public Task TrySaveAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task<bool> TrySaveAsync(CancellationToken cancel = default(CancellationToken))
         {
-            return Task.WhenAll(_reifiedProjections.Select(p => p.TrySaveAsync(cancel)));
+            var all = await Task.WhenAll(
+                _reifiedProjections.Select(p => p.TrySaveAsync(cancel)));
+
+            return all.All(b => b);
         }
 
         public async Task TryLoadAsync(CancellationToken cancel = default(CancellationToken))

@@ -11,17 +11,20 @@ namespace Lokad.AzureEventStore.Projections
     {
         /// <summary> Attempt to save this projection to the destination stream. </summary>
         /// <remarks>
-        /// The returned task should not access the object in any way, so the object
-        /// may be safely accessed before the task has finished executing.
+        ///     The returned task does not access the projection in any way, so the 
+        ///     projection may be safely accessed before the task has finished executing.
         /// </remarks>
-        Task TrySaveAsync(CancellationToken cancel = default(CancellationToken));
+        /// <returns>
+        ///     True if saving was successful, false if it failed.
+        /// </returns>
+        Task<bool> TrySaveAsync(CancellationToken cancel = default);
 
         /// <summary>
         /// Attempt to load this projection from the source, updating its
         /// current state and <see cref="Sequence"/>.
         /// </summary>
-        /// <remarks> Object is unchanged if loading fails. </remarks>
-        Task TryLoadAsync(CancellationToken cancel = default(CancellationToken));
+        /// <remarks> Projection is unchanged if loading fails. </remarks>
+        Task TryLoadAsync(CancellationToken cancel = default);
 
         /// <summary>
         /// Notify the projection that the state may be inconsistent, due to 
