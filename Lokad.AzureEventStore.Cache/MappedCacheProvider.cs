@@ -83,14 +83,14 @@ namespace Lokad.AzureEventStore.Cache
                                 await remote.CopyToAsync(local).ConfigureAwait(false);
                             }
 
-                            return (open.filename, result.Name);
+                            return (open.path, result.Name);
                         }
                     });
 
                     yield return Task.Run(async () =>
                     {
-                        var (localName, remoteName) = await copyToLocal.ConfigureAwait(false);
-                        return MemoryMap(localName, remoteName);
+                        var (localPath, remoteName) = await copyToLocal.ConfigureAwait(false);
+                        return MemoryMap(localPath, remoteName);
                     });
 
                     // If still enumerating, then the file did not contain a valid cache, and
@@ -124,10 +124,10 @@ namespace Lokad.AzureEventStore.Cache
         }
 
         /// <summary>
-        ///     Open a local file for writing. Returns both the file name and the 
-        ///     opened, writable, empty string.
+        ///     Open a local file for writing. Returns both the path to the file and the 
+        ///     opened, writable, empty stream.
         /// </summary>
-        private (string filename, Stream stream) OpenWriteLocal(string stateName)
+        private (string path, Stream stream) OpenWriteLocal(string stateName)
         {
             var filename = DateTime.UtcNow.ToString("yyyyMMddHHmmss") 
                 + "-" 
@@ -142,7 +142,7 @@ namespace Lokad.AzureEventStore.Cache
 
         public async Task TryWriteAsync(string stateName, Func<Stream, Task> write)
         {
-            var (filename, stream) = OpenWriteLocal(stateName);
+            var (filepath, stream) = OpenWriteLocal(stateName);
 
             try
             {
@@ -153,7 +153,7 @@ namespace Lokad.AzureEventStore.Cache
             {
                 // In case of failure, delete the broken file.
                 stream.Dispose();
-                try { File.Delete(filename); }
+                try { File.Delete(filepath); }
                 catch { /* Ignored silently. */ }
                 throw;
             }
@@ -165,7 +165,7 @@ namespace Lokad.AzureEventStore.Cache
                 {
                     using (remote)
                     {
-                        using (var local = File.OpenRead(filename))
+                        using (var local = File.OpenRead(filepath))
                         {
                             await local.CopyToAsync(remote).ConfigureAwait(false);
                         }
