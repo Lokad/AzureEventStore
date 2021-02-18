@@ -53,6 +53,8 @@ namespace Lokad.AzureEventStore.Cache
         /// </remarks>
         private async Task<CloudBlockBlob[]> Blobs(string stateName)
         {
+            // Calling CreateIfNotExists with insufficient privilege will
+            // throw an exception _even if_ the container _exists_.
             // Attempting to create the container only if it doesn't exist
             // allows to read existing state caches even if the caller does not
             // have sufficient permission to create the container.
