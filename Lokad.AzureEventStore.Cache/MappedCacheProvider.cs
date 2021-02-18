@@ -137,7 +137,7 @@ namespace Lokad.AzureEventStore.Cache
             Directory.CreateDirectory(Path.Combine(_directory, stateName));
 
             var path = Path.Combine(_directory, stateName, filename);
-            return (filename, new FileStream(path, FileMode.Create));
+            return (path, new FileStream(path, FileMode.Create));
         }
 
         public async Task TryWriteAsync(string stateName, Func<Stream, Task> write)
@@ -153,7 +153,7 @@ namespace Lokad.AzureEventStore.Cache
             {
                 // In case of failure, delete the broken file.
                 stream.Dispose();
-                try { File.Delete(Path.Combine(_directory, stateName, filename)); }
+                try { File.Delete(filename); }
                 catch { /* Ignored silently. */ }
                 throw;
             }
