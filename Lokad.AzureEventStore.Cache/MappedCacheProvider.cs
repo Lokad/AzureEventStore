@@ -62,11 +62,12 @@ namespace Lokad.AzureEventStore.Cache
                 foreach (var fileName in inDirectory)
                 {
                     // Wrap in Task.Run so that exceptions do not kill the enumeration
-                    yield return Task.Run(() => MemoryMap(fileName, null));
+                    var filePath = Path.Combine(_directory, stateName, fileName);
+                    yield return Task.Run(() => MemoryMap(filePath, null));
 
                     // If still enumerating, then the file did not contain a valid cache, and
                     // so we delete it to avoid reading it again.
-                    DeleteFile(fileName);
+                    DeleteFile(filePath);
                 }
 
                 // If not, fall back to proxy blobs
@@ -97,30 +98,40 @@ namespace Lokad.AzureEventStore.Cache
                     // so we delete it to avoid reading it again.
                     Task.Run(async () =>
                     {
-                        var (localName, _) = await copyToLocal.ConfigureAwait(false);
-                        DeleteFile(localName);
+                        var (localPath, _) = await copyToLocal.ConfigureAwait(false);
+                        DeleteFile(localPath);
                     });
                 }
             }
+        }
 
-            /// Memory-maps the file with the specified name
-            CacheCandidate MemoryMap(string fileName, string from = null)
-            {
-                var path = Path.Combine(_directory, stateName, fileName);
-                var length = new FileInfo(path).Length;
-                return new CacheCandidate(
-                    "mmap:" + path + (from == null ? "" : " from " + from),
-                    new BigMemoryStream(new MemoryMapper(
-                        MemoryMappedFile.CreateFromFile(path, FileMode.Open),
-                        0, length)));
-            }
+        /// <summary>
+        /// Memory-maps the file at the specified path.
+        /// </summary>
+        /// <param name="filePath">Path to the memory mapped file.</param>
+        /// <param name="from"> information about the <see cref="IProjectionCacheProvider"/> which
+        /// local path is the proxy.</param>
+        /// <returns>the associated <see cref="CacheCandidate"/></returns>
+        private CacheCandidate MemoryMap(string filePath, string from = null)
+        {
+            var length = new FileInfo(filePath).Length;
+            return new CacheCandidate(
+                "mmap:" + filePath + (from == null ? "" : " from " + from),
+                new BigMemoryStream(new MemoryMapper(
+                    MemoryMappedFile.CreateFromFile(filePath, FileMode.Open),
+                    0, length)));
+        }
 
-            void DeleteFile(string fileName)
-            {
-                var path = Path.Combine(_directory, stateName, fileName);
-                try { File.Delete(path); } 
-                catch { /* Ignored silently. */ }
-            }
+        /// <summary>
+        /// Attempts to delete the file located at the given path.
+        /// </summary>
+        /// <param name="filePath">path of the file that should be deleted.</param>
+        /// <remarks>Any exception raised at the deletion attempt will be
+        /// silently ignored.</remarks>
+        private void DeleteFile(string filePath)
+        {
+            try { File.Delete(filePath); }
+            catch { /* Ignored silently. */ }
         }
 
         /// <summary>
