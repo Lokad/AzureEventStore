@@ -53,9 +53,9 @@ namespace Lokad.AzureEventStore.Cache
         /// </remarks>
         private async Task<CloudBlockBlob[]> Blobs(string stateName)
         {
-            // Attempting to create the container if it doesn't exist allows
-            // to jump-start a state from existing caches only letting the
-            // upload of a refreshed state to fail.
+            // Attempting to create the container only if it doesn't exist
+            // allows to read existing state caches even if the caller does not
+            // have sufficient permission to create the container.
             if (AllowWrite && ! await _container.ExistsAsync().ConfigureAwait(false))
                 await _container.CreateIfNotExistsAsync().ConfigureAwait(false);
 
