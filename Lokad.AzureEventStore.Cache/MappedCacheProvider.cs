@@ -62,11 +62,12 @@ namespace Lokad.AzureEventStore.Cache
                 foreach (var fileName in inDirectory)
                 {
                     // Wrap in Task.Run so that exceptions do not kill the enumeration
-                    yield return Task.Run(() => MemoryMap(fileName, null));
+                    var filePath = Path.Combine(_directory, stateName, fileName);
+                    yield return Task.Run(() => MemoryMap(filePath, null));
 
                     // If still enumerating, then the file did not contain a valid cache, and
                     // so we delete it to avoid reading it again.
-                    DeleteFile(fileName);
+                    DeleteFile(filePath);
                 }
 
                 // If not, fall back to proxy blobs
@@ -83,51 +84,61 @@ namespace Lokad.AzureEventStore.Cache
                                 await remote.CopyToAsync(local).ConfigureAwait(false);
                             }
 
-                            return (open.filename, result.Name);
+                            return (open.path, result.Name);
                         }
                     });
 
                     yield return Task.Run(async () =>
                     {
-                        var (localName, remoteName) = await copyToLocal.ConfigureAwait(false);
-                        return MemoryMap(localName, remoteName);
+                        var (localPath, remoteName) = await copyToLocal.ConfigureAwait(false);
+                        return MemoryMap(localPath, remoteName);
                     });
 
                     // If still enumerating, then the file did not contain a valid cache, and
                     // so we delete it to avoid reading it again.
                     Task.Run(async () =>
                     {
-                        var (localName, _) = await copyToLocal.ConfigureAwait(false);
-                        DeleteFile(localName);
+                        var (localPath, _) = await copyToLocal.ConfigureAwait(false);
+                        DeleteFile(localPath);
                     });
                 }
-            }
-
-            /// Memory-maps the file with the specified name
-            CacheCandidate MemoryMap(string fileName, string from = null)
-            {
-                var path = Path.Combine(_directory, stateName, fileName);
-                var length = new FileInfo(path).Length;
-                return new CacheCandidate(
-                    "mmap:" + path + (from == null ? "" : " from " + from),
-                    new BigMemoryStream(new MemoryMapper(
-                        MemoryMappedFile.CreateFromFile(path, FileMode.Open),
-                        0, length)));
-            }
-
-            void DeleteFile(string fileName)
-            {
-                var path = Path.Combine(_directory, stateName, fileName);
-                try { File.Delete(path); } 
-                catch { /* Ignored silently. */ }
             }
         }
 
         /// <summary>
-        ///     Open a local file for writing. Returns both the file name and the 
-        ///     opened, writable, empty string.
+        /// Memory-maps the file at the specified path.
         /// </summary>
-        private (string filename, Stream stream) OpenWriteLocal(string stateName)
+        /// <param name="filePath">Path to the memory mapped file.</param>
+        /// <param name="from"> information about the <see cref="IProjectionCacheProvider"/> which
+        /// local path is the proxy.</param>
+        /// <returns>the associated <see cref="CacheCandidate"/></returns>
+        private CacheCandidate MemoryMap(string filePath, string from = null)
+        {
+            var length = new FileInfo(filePath).Length;
+            return new CacheCandidate(
+                "mmap:" + filePath + (from == null ? "" : " from " + from),
+                new BigMemoryStream(new MemoryMapper(
+                    MemoryMappedFile.CreateFromFile(filePath, FileMode.Open),
+                    0, length)));
+        }
+
+        /// <summary>
+        /// Attempts to delete the file located at the given path.
+        /// </summary>
+        /// <param name="filePath">path of the file that should be deleted.</param>
+        /// <remarks>Any exception raised at the deletion attempt will be
+        /// silently ignored.</remarks>
+        private void DeleteFile(string filePath)
+        {
+            try { File.Delete(filePath); }
+            catch { /* Ignored silently. */ }
+        }
+
+        /// <summary>
+        ///     Open a local file for writing. Returns both the path to the file and the 
+        ///     opened, writable, empty stream.
+        /// </summary>
+        private (string path, Stream stream) OpenWriteLocal(string stateName)
         {
             var filename = DateTime.UtcNow.ToString("yyyyMMddHHmmss") 
                 + "-" 
@@ -137,12 +148,12 @@ namespace Lokad.AzureEventStore.Cache
             Directory.CreateDirectory(Path.Combine(_directory, stateName));
 
             var path = Path.Combine(_directory, stateName, filename);
-            return (filename, new FileStream(path, FileMode.Create));
+            return (path, new FileStream(path, FileMode.Create));
         }
 
         public async Task TryWriteAsync(string stateName, Func<Stream, Task> write)
         {
-            var (filename, stream) = OpenWriteLocal(stateName);
+            var (filepath, stream) = OpenWriteLocal(stateName);
 
             try
             {
@@ -153,7 +164,7 @@ namespace Lokad.AzureEventStore.Cache
             {
                 // In case of failure, delete the broken file.
                 stream.Dispose();
-                try { File.Delete(Path.Combine(_directory, stateName, filename)); }
+                try { File.Delete(filepath); }
                 catch { /* Ignored silently. */ }
                 throw;
             }
@@ -165,7 +176,7 @@ namespace Lokad.AzureEventStore.Cache
                 {
                     using (remote)
                     {
-                        using (var local = File.OpenRead(filename))
+                        using (var local = File.OpenRead(filepath))
                         {
                             await local.CopyToAsync(remote).ConfigureAwait(false);
                         }
