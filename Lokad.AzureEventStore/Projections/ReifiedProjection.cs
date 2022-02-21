@@ -102,9 +102,33 @@ namespace Lokad.AzureEventStore.Projections
             }
             catch (Exception ex)
             {
-                _log?.Warning($"[{Name}] error at seq {seq}", ex);
+                _log?.Warning($"[{Name}] error at seq {seq}", ex); 
 
                 _possiblyInconsistent = true;
+                throw;
+            }
+        }
+
+        /// <summary> Apply the candidate events without invalidation. </summary>
+        /// <remarks> The sequence number must be greater than <see cref="Sequence"/>. 
+        /// Projection is not changed. </remarks>
+        public void TryApply(uint seq, IReadOnlyList<TEvent> events)
+        {
+            TState newState = Current;
+            try
+            {
+                foreach (TEvent e in events)
+                {
+                    seq++;
+                    newState = _projection.Apply(seq, e, newState);
+                    if (newState == null)
+                        throw new InvalidOperationException("Event generated a null state.");
+                }
+            }
+            catch (Exception ex)
+            {
+                ex.Data.Add("TryApplyMessage", "An error occured while trying to apply a projection.");
+                _log?.Warning("[{Name}] error on event candidate", ex);
                 throw;
             }
         }

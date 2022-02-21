@@ -115,7 +115,7 @@ namespace Lokad.AzureEventStore
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e)
                 {
-                    _log.Error("Could not initialize EventStreamService", e);
+                    _log?.Error("Could not initialize EventStreamService", e);
                     _initFailure = e;
                     Wrapper.Reset();                    
                 }

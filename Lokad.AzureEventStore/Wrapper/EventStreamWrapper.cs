@@ -118,7 +118,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </summary>
         public async Task InitializeAsync(CancellationToken cancel = default)
         {
-            var log = _log.Timestamped();
+            var log = _log?.Timestamped();
             await Catchup(_projection, Stream, cancel);
 
             // Start reading everything
@@ -268,7 +268,7 @@ namespace Lokad.AzureEventStore.Wrapper
                             throw new InvalidOperationException(
                                 "Projection Save/Load cycle failed to restore sequence.");
 
-                        _log.Info($"[ES read] cache save/load cycle in {sw.Elapsed} at seq {_projection.Sequence}.");
+                        _log?.Info($"[ES read] cache save/load cycle in {sw.Elapsed} at seq {_projection.Sequence}.");
                     }
                 }
 
@@ -305,6 +305,9 @@ namespace Lokad.AzureEventStore.Wrapper
                     // No events to append, just return result
                     if (tuple.Events == null || tuple.Events.Count == 0)
                         return new AppendResult<T>(0, 0, tuple.Result);
+                    
+                    // Check for corrupted events. If even one event is corrupted, then events are not appended.
+                    CheckEvents(tuple.Events);
 
                     // Append the events                
                     var done = await Stream.WriteAsync(tuple.Events, cancel).ConfigureAwait(false);
@@ -331,10 +334,19 @@ namespace Lokad.AzureEventStore.Wrapper
             catch (Exception e)
             {
                 if (!thrownByBuilder)
-                    _log.Error("While appending events", e);
-
+                    _log?.Error("While appending events", e);
                 throw;
             }
+        }
+
+        /// <summary> Check candidate events. </summary>
+        /// <remarks> 
+        /// An exception is thrown application of projections does not succed.
+        /// Validity check does not result in any change of the projection.
+        /// </remarks>
+        private void CheckEvents(IReadOnlyList<TEvent> events)
+        {
+            _projection.TryApply(Stream.Sequence, events);
         }
 
         /// <summary> Append events, constructed from the state, to the stream. </summary>

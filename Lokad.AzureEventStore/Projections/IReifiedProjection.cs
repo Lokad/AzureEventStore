@@ -1,5 +1,6 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -51,6 +52,11 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Apply the specified event to the state. </summary>
         /// <remarks> The sequence number must be greater than <see cref="IReifiedProjection.Sequence"/>. </remarks>
         void Apply(uint seq, TEvent e);
+
+        /// <summary> Check applicability the specified event to the state. </summary>
+        /// <remarks> The method should throw an exception in case of event invalidity.
+        /// Projection must not be changed. </remarks>
+        void TryApply(uint seq, IReadOnlyList<TEvent> e);
     }
 
     internal interface IReifiedProjection<in TEvent, out TState> : IReifiedProjection<TEvent>

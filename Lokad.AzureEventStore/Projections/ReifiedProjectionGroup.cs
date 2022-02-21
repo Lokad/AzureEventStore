@@ -185,6 +185,15 @@ namespace Lokad.AzureEventStore.Projections
             InvalidateCurrent();
         }
 
+        /// <summary> Passing events through every projection without invalidation or changes in projection. </summary>
+        public void TryApply(uint seq, IReadOnlyList<TEvent> events)
+        {
+            foreach (var p in _reifiedProjections)
+            {
+                p.TryApply(seq, events);
+            }
+        }
+
         public void Reset()
         {
             foreach (var p in _reifiedProjections) p.Reset();
