@@ -95,23 +95,23 @@ word is counted, it contains the word (`Key`) and the new tally for that word
 (`Value`) ; `ValueDeleted` happens when the word is removed from the dictionary,
 and only references the word (`Key`).
 
-```
-    [DataContract]
-    public sealed class ValueUpdated : IEvent
-    {
-        [DataMember]
-        public string Key { get; private set; }
+```csharp
+[DataContract]
+public sealed class ValueUpdated : IEvent
+{
+    [DataMember]
+    public string Key { get; private set; }
 
-        [DataMember]
-        public int Value { get; private set; }
-    }
+    [DataMember]
+    public int Value { get; private set; }
+}
 
-    [DataContract]
-    public sealed class ValueDeleted : IEvent
-    {
-        [DataMember]
-        public string Key { get; private set; }
-    }
+[DataContract]
+public sealed class ValueDeleted : IEvent
+{
+    [DataMember]
+    public string Key { get; private set; }
+}
 ```
 
 ### State
@@ -130,16 +130,16 @@ required.
 In the example project, the state is simply a dictionary that maps words to their
 current tally.
 
-```
-    public sealed class State
+```csharp
+public sealed class State
+{
+    public State(ImmutableDictionary<string, int> bindings)
     {
-        public State(ImmutableDictionary<string, int> bindings)
-        {
-            Bindings = bindings;
-        }
-
-        public ImmutableDictionary<string,int> Bindings { get; }
+        Bindings = bindings;
     }
+
+    public ImmutableDictionary<string,int> Bindings { get; }
+}
 ```
 
 ### Projection
@@ -157,16 +157,16 @@ The following fields must be implemented:
  - The initial state, to which the first event in the stream will be 
    applied.
 
-   ```  
-       public State Initial => 
-	       new State(ImmutableDictionary<string, int>.Empty);
+   ```csharp
+   public State Initial => 
+       new State(ImmutableDictionary<string, int>.Empty);
    ```
 
  - The type of the state. This is used for reflection purposes, to identify
    which projection should be invoked for a given materialized view.
 
-   ```
-       public Type State => typeof(State);
+   ```csharp
+   public Type State => typeof(State);
    ```
 
  - The `Apply` function which, based on a previous state and a new event,
@@ -187,17 +187,17 @@ The following fields must be implemented:
    In a real-life project, this function would be implemented with a visitor
    pattern, but in the example project it is simply:
 
-   ```
-      public State Apply(uint sequence, IEvent e, State previous)
-      {
-          if (e is ValueDeleted d)
-              return new State(previous.Bindings.Remove(d.Key));
-			  
-	      if (e is ValueUpdated u)
-              return new State(previous.Bindings.SetItem(u.Key, u.Value));
+   ```csharp
+   public State Apply(uint sequence, IEvent e, State previous)
+   {
+       if (e is ValueDeleted d)
+           return new State(previous.Bindings.Remove(d.Key));
+     
+       if (e is ValueUpdated u)
+           return new State(previous.Bindings.SetItem(u.Key, u.Value));
 
-          throw new ArgumentOutOfRangeException(nameof(e), "Unknown event type " + e.GetType());
-      }
+       throw new ArgumentOutOfRangeException(nameof(e), "Unknown event type " + e.GetType());
+   }
    ```
 
  - The `TryLoadAsync` and `TrySaveAsync`, used to add checkpoint support to a
@@ -255,13 +255,13 @@ To create a connection string:
 To represent an event stream and associated materialized views, the library 
 provides the `EventStreamService<IEvent, State>` class. 
 
-```
-    var svc = EventStreamService<IEvent, State>.StartNew(        
-        storage: new StorageConfiguration("..."),
-        projections: new[] { new Projection() },
-        projectionCache: null,
-        log: null,
-        cancel: cancellationToken);
+```csharp
+var svc = EventStreamService<IEvent, State>.StartNew(        
+    storage: new StorageConfiguration("..."),
+    projections: new[] { new Projection() },
+    projectionCache: null,
+    log: null,
+    cancel: cancellationToken);
 ```
 
 When created, the service connects to the stream and starts retrieving events, 
@@ -289,7 +289,48 @@ in two ways:
    the moment the call was made. It performs a round-trip to the 
    Azure Blob Storage, which might take a few milliseconds.
 
-#### Appending new events
+#### Appending new events directly
+
+Call `service.TransactionAsync(builder, cancellationToken)` to perform 
+a transaction that can add events to the stream. The builder is either an
+`Action<Transaction<IEvent,TState>>` or a `Func<Transaction<IEvent,TState>, TReturn>` 
+(in the latter case, the `TransactionAsync` method will include the value returned 
+by the builder in the field `.More` of its return value).
+
+```csharp
+var email = "...";
+await service.TransactionAsync(transaction =>
+{
+    // Throwing automatically rolls back the transaction
+    if (transaction.State.Emails.ContainsKey(email))
+        throw new ArgumentException("Mail already exists");
+
+    // Events added to the transaction are appended to the stream
+    // after it ends. 
+    transaction.Add(new EmailAdded(email));
+
+    // After each Add() the state of the transaction is updated.
+    // This also means that if the event causes the projection to 
+    // throw, the exception will interrupt the transaction.
+    var mailCount = transaction.State.Emails.Count;
+
+    // Transactions can be aborted. 
+    transaction.Abort();
+
+}, cancellationToken);
+```
+
+The events accumulated during the transaction are then appended to the stream.
+If this fails because of a conflict (someone else appended to the stream while
+the transaction was running), the events are discarded, the state is refreshed
+to take the new remote events into account, and the transaction builder callback
+is invoked again. 
+
+A transaction that aborts (or emits no events) automatically succeeds. 
+
+#### Appending new events directly
+
+Note that the preferred way is to use transactions (documented above).
 
 Call `service.AppendEventsAsync(builder, cancellationToken)`. The builder
 is a function `Func<State, Append<IEvent>>` which takes the current state 
@@ -305,13 +346,13 @@ returns no events, or the appending succeeds.
 Function `service.Use(params IEvent[] events)` is a good helper function
 for creating an `Append<IEvent>`:
 
-```
-    // Another occurence of 'word' has been found
-	await service.AppendEventsAsync(state =>
-	{
-		state.Bindings.TryGetValue(word, out int currentCount);
-		return service.Use(new ValueUpdated(word, currentCount + 1));
-	}, CancellationToken.None)
+```csharp
+// Another occurence of 'word' has been found
+await service.AppendEventsAsync(state =>
+{
+  state.Bindings.TryGetValue(word, out int currentCount);
+  return service.Use(new ValueUpdated(word, currentCount + 1));
+}, CancellationToken.None)
 ```
 
 In practice, it is often useful to return some state from the builder back
@@ -320,17 +361,17 @@ the state, it should be able to return the identifier of the new item. This
 is possible by using an `Append<IEvent, TResult>` instead, which carries data out
 of the builder: 
 
-```
-    // Another occurence of 'word' has been found
-	var result = await service.AppendEventsAsync(state =>
-	{
-		state.Bindings.TryGetValue(word, out int currentCount);
-		return service.With(
-		    currentCount + 1, // Return the new count
-		    new ValueUpdated(word, currentCount + 1));
-	}, CancellationToken.None);
+```csharp
+// Another occurence of 'word' has been found
+var result = await service.AppendEventsAsync(state =>
+{
+  state.Bindings.TryGetValue(word, out int currentCount);
+  return service.With(
+      currentCount + 1, // Return the new count
+      new ValueUpdated(word, currentCount + 1));
+}, CancellationToken.None);
 
-	var newCount = result.Result;
+var newCount = result.Result;
 ```
 
 ### Stream Migrations
@@ -362,17 +403,17 @@ Example of a migration concierge which drops all events of a defunct type
 `ObsoleteEvent`:
 
 ```csharp
-    var currentStream = new EventStream<IMyEvent>(currentConfig);
-    var newStream = new MigrationStream<IMyEvent>(newConfig);
+var currentStream = new EventStream<IMyEvent>(currentConfig);
+var newStream = new MigrationStream<IMyEvent>(newConfig);
 
-    await newStream.MigrateFromAsync(
-        currentStream, 
-        // Drop events of type 'ObsoletEvent'
-        (IMyEvent ev, uint _seq) => ev is ObseleteEvent ? null : ev, 
-        // When reaching the end of 'currentStream', refresh it every 2 seconds
-        // to see if new events have appeared
-        TimeSpan.FromSeconds(2),
-        default(CancellationToken));
+await newStream.MigrateFromAsync(
+    currentStream, 
+    // Drop events of type 'ObsoletEvent'
+    (IMyEvent ev, uint _seq) => ev is ObseleteEvent ? null : ev, 
+    // When reaching the end of 'currentStream', refresh it every 2 seconds
+    // to see if new events have appeared
+    TimeSpan.FromSeconds(2),
+    default(CancellationToken));
 ```
 
 ## Architecture

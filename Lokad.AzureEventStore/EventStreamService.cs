@@ -301,7 +301,47 @@ namespace Lokad.AzureEventStore
             CancellationToken cancel = default)
         =>
             EnqueueAction(c => Wrapper.AppendEventsAsync(events, c), cancel);
-        
+
+        /// <summary> Run a transaction on the stream. </summary>
+        /// <remarks> 
+        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+        ///     to access the state (initially, will be the current state, but after 
+        ///     events are appended to the transaction, the transaction state will reflect
+        ///     those events as well).
+        ///     
+        ///     If the callback does not throw, the events are appended to the stream. 
+        ///     If the stream has been modified in the mean time, then the callback will
+        ///     be replayed with the new up-to-date state. 
+        /// </remarks>
+        /// <returns>
+        ///     The value returned by the callback, along with details about how many events
+        ///     were written and up to which sequence. 
+        /// </returns>
+        public Task<AppendResult<T>> TransactionAsync<T>(
+            Func<Transaction<TEvent, TState>, T> builder,
+            CancellationToken cancel = default)
+        =>
+            EnqueueAction(c => Wrapper.TransactionAsync(builder, c), cancel);
+
+        /// <summary> Run a transaction on the stream. </summary>
+        /// <remarks> 
+        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+        ///     to access the state (initially, will be the current state, but after 
+        ///     events are appended to the transaction, the transaction state will reflect
+        ///     those events as well).
+        ///     
+        ///     If the callback does not throw, the events are appended to the stream. 
+        ///     If the stream has been modified in the mean time, then the callback will
+        ///     be replayed with the new up-to-date state. 
+        /// </remarks>
+        public Task<AppendResult> TransactionAsync(
+            Action<Transaction<TEvent, TState>> builder,
+            CancellationToken cancel = default)
+        =>
+            EnqueueAction(c => Wrapper.TransactionAsync(builder, c), cancel);
+
         /// <summary> Attempt to save the projection to the cache. </summary>
         public Task TrySaveAsync(CancellationToken cancel = default) =>
             Wrapper.TrySaveAsync(cancel);

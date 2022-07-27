@@ -339,6 +339,144 @@ namespace Lokad.AzureEventStore.Wrapper
             }
         }
 
+        /// <summary> Run a transaction on the stream. </summary>
+        /// <remarks> 
+        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+        ///     to access the state (initially, will be the current state, but after 
+        ///     events are appended to the transaction, the transaction state will reflect
+        ///     those events as well).
+        ///     
+        ///     If the callback does not throw, the events are appended to the stream. 
+        ///     If the stream has been modified in the mean time, then the callback will
+        ///     be replayed with the new up-to-date state. 
+        /// </remarks>
+        /// <returns>
+        ///     The value returned by the callback, along with details about how many events
+        ///     were written and up to which sequence. 
+        /// </returns>
+        public async Task<AppendResult<T>> TransactionAsync<T>(
+            Func<Transaction<TEvent, TState>, T> builder,
+            CancellationToken cancel = default)
+        {
+            var thrownByBuilder = false;
+
+            try
+            {
+                while (true)
+                {
+                    var transaction = new Transaction<TEvent, TState>(_projection.Clone());
+
+                    thrownByBuilder = true;
+                    var result = builder(transaction);
+                    thrownByBuilder = false;
+
+                    var events = transaction.Events;
+
+                    // No events to append, just return result
+                    if (events.Length == 0)
+                        return new AppendResult<T>(0, 0, result);
+
+                    // No need to check for corrupted events, since the transaction
+                    // automatically applies them on the fly.
+
+                    // Append the events                
+                    var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
+
+                    if (done == null)
+                    {
+                        // Append failed. Catch up and try again.
+                        await CatchUpAsync(cancel).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // Append succeeded. Catch up with locally available events (including those
+                        // that were just added), then return append information.
+                        CatchUpLocal();
+                        NotifyRefresh();
+                        return new AppendResult<T>(events.Length, (uint)done, result);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                if (!thrownByBuilder)
+                    _log?.Error("While appending events", e);
+                throw;
+            }
+        }
+
+        /// <summary> Run a transaction on the stream. </summary>
+        /// <remarks> 
+        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+        ///     to access the state (initially, will be the current state, but after 
+        ///     events are appended to the transaction, the transaction state will reflect
+        ///     those events as well).
+        ///     
+        ///     If the callback does not throw, the events are appended to the stream. 
+        ///     If the stream has been modified in the mean time, then the callback will
+        ///     be replayed with the new up-to-date state. 
+        /// </remarks>
+        public async Task<AppendResult> TransactionAsync(
+            Action<Transaction<TEvent, TState>> builder,
+            CancellationToken cancel = default)
+        {
+            var thrownByBuilder = false;
+
+            try
+            {
+                while (true)
+                {
+                    var transaction = new Transaction<TEvent, TState>(_projection.Clone());
+
+                    thrownByBuilder = true;
+                    builder(transaction);
+                    thrownByBuilder = false;
+
+                    var events = transaction.Events;
+
+                    // No events to append
+                    if (events.Length == 0)
+                        return new AppendResult(0, 0);
+
+                    // No need to check for corrupted events, since the transaction
+                    // automatically applies them on the fly.
+
+                    // Append the events                
+                    var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
+
+                    if (done == null)
+                    {
+                        // Append failed. Catch up and try again.
+                        await CatchUpAsync(cancel).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // Append succeeded. Catch up with locally available events (including those
+                        // that were just added), then return append information.
+                        CatchUpLocal();
+                        NotifyRefresh();
+                        return new AppendResult(events.Length, (uint)done);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                if (!thrownByBuilder)
+                    _log?.Error("While appending events", e);
+                throw;
+            }
+        }
+
         /// <summary> Check candidate events. </summary>
         /// <remarks> 
         /// An exception is thrown application of projections does not succed.

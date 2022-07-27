@@ -57,11 +57,27 @@ namespace Lokad.AzureEventStore.Projections
         /// <remarks> The method should throw an exception in case of event invalidity.
         /// Projection must not be changed. </remarks>
         void TryApply(uint seq, IReadOnlyList<TEvent> e);
+
+        /// <summary> Create an independent clone of this reified projection. </summary>
+        /// <remarks>
+        ///     The <see cref="IReifiedProjection{TEvent, TState}.Current"/> and 
+        ///     <see cref="Sequence"/> of the clone are the same,
+        ///     but evolve independently from the original projection. 
+        /// </remarks>
+        IReifiedProjection<TEvent> Clone();
     }
 
     internal interface IReifiedProjection<in TEvent, out TState> : IReifiedProjection<TEvent>
     {
         /// <summary> The current state of the projection. </summary>
         TState Current { get; }
+
+        /// <summary> Create an independent clone of this reified projection. </summary>
+        /// <remarks>
+        ///     The <see cref="IReifiedProjection{TEvent, TState}.Current"/> and 
+        ///     <see cref="Sequence"/> of the clone are the same,
+        ///     but evolve independently from the original projection. 
+        /// </remarks>
+        new IReifiedProjection<TEvent, TState> Clone();
     }
 }

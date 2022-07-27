@@ -112,5 +112,55 @@ namespace Lokad.AzureEventStore.Test.wrapper
             }
             throw new Exception("Expecting an exception in EventStreamWrapper.CheckEvents.");
         }
+
+        [Fact]
+        public async Task invalid_events_transaction()
+        {
+            var memory = new MemoryStorageDriver();
+            var ew = new EventStreamWrapper<VEvent, VState>(
+                memory,
+                new[] { new Projection() }, null, new TestLog()
+            );
+            try
+            {
+                await ew.TransactionAsync(transaction => 
+                {
+                    transaction.Add(new VEvent(true));
+                    transaction.Add(new VEvent(true));
+                    transaction.Add(new VEvent(true));
+                    transaction.Add(new VEvent(false));
+                });
+            }
+            catch (Exception ex)
+            {
+                // Checking if the state is untouched.
+                Assert.Equal(0u, ew.Current.SeqState);
+                // Checking the error type.
+                Assert.Equal("Validity test failed", ex.Message);
+                // If an exception was thrown, then it is ok and a corrupted event sequence does not pass.
+                return;
+            }
+            throw new Exception("Expecting an exception in transaction.");
+        }
+
+        [Fact]
+        public async Task valid_events_transaction()
+        {
+            var memory = new MemoryStorageDriver();
+            var ew = new EventStreamWrapper<VEvent, VState>(
+                memory,
+                new[] { new Projection() }, null, new TestLog()
+            );
+
+            await ew.TransactionAsync(transaction =>
+            {
+                transaction.Add(new VEvent(true));
+                transaction.Add(new VEvent(true));
+                transaction.Add(new VEvent(true));
+                transaction.Add(new VEvent(true));
+                transaction.Add(new VEvent(true));
+            });
+            Assert.Equal(5u, ew.Current.SeqState);
+        }
     }
 }

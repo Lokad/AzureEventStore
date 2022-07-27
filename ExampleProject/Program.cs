@@ -76,10 +76,12 @@ namespace ExampleProject
                         text = text.Substring(0, 65536);
 
                     var id =
-                        await svc.AppendEventsAsync(
-                            state =>
-                                svc.With(state.Documents.Count, new DocumentAdded(state.Documents.Count, path, text)),
-                            default);
+                        await svc.TransactionAsync(transaction =>
+                        {
+                            var count = transaction.State.Documents.Count;
+                            transaction.Add(new DocumentAdded(count, path, text));
+                            return count;
+                        }, default);
 
                     Console.WriteLine("Added as document {0}", id.More);
 
@@ -98,10 +100,12 @@ namespace ExampleProject
                             text = text.Substring(0, 65536);
 
                         var id =
-                            await svc.AppendEventsAsync(
-                                state =>
-                                    svc.With(state.Documents.Count, new DocumentAdded(state.Documents.Count, path, text)),
-                                default);
+                            await svc.TransactionAsync(transaction =>
+                            {
+                                var count = transaction.State.Documents.Count;
+                                transaction.Add(new DocumentAdded(count, path, text));
+                                return count;
+                            }, default);
 
                         Console.WriteLine("Added document {0} = {1}", id.More, path);
                     }

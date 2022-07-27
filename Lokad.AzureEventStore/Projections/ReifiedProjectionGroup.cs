@@ -25,6 +25,30 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Cached state, computed lazily. </summary>        
         private Lazy<TState> _current;
 
+        private ReifiedProjectionGroup(
+            IReifiedProjection<TEvent>[] reifiedProjections,
+            Func<IReifiedProjection<TEvent>[], TState> refresh)
+        {
+            _reifiedProjections = reifiedProjections;
+            _refresh = refresh;
+            _refreshClosure = () =>
+            {
+                var value = refresh(reifiedProjections);
+                return value;
+            };
+
+            InvalidateCurrent();
+        }
+
+        /// <inheritdoc/>
+        public IReifiedProjection<TEvent, TState> Clone() =>
+            new ReifiedProjectionGroup<TEvent, TState>(
+                _reifiedProjections.Select(p => p.Clone()).ToArray(),
+                _refresh);
+
+        /// <inheritdoc/>
+        IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
+
         /// <summary>
         /// Reifies a group of projections as a <typeparamref name="TState"/> object.
         /// </summary>
@@ -76,7 +100,8 @@ namespace Lokad.AzureEventStore.Projections
                 _reifiedProjections = new[] {direct};
                 var directCast = (ReifiedProjection<TEvent, TState>) direct;
 
-                _refresh = () => directCast.Current;
+                _refresh = d => ((ReifiedProjection<TEvent, TState>)d[0]).Current;
+                _refreshClosure = () => directCast.Current;
                 
                 InvalidateCurrent();
                 return;
@@ -125,10 +150,10 @@ namespace Lokad.AzureEventStore.Projections
             var lambda = Expression.Lambda<Func<IReifiedProjection<TEvent>[], TState>>(
                 Expression.New(stateConstructor, arguments), array);
 
-            var extract = lambda.Compile();
+            var refresh = _refresh = lambda.Compile();
             var reifiedProjections = _reifiedProjections = reifiedByPos.ToArray();
 
-            _refresh = () => extract(reifiedProjections);
+            _refreshClosure = () => refresh(reifiedProjections);
 
             InvalidateCurrent();
         } 
@@ -174,6 +199,10 @@ namespace Lokad.AzureEventStore.Projections
                     catch (Exception ex)
                     {
                         SetPossiblyInconsistent();
+                        
+                        if (_reifiedProjections.Length == 1)
+                            throw;
+
                         if (exceptions == null) exceptions = new List<Exception>();
                         exceptions.Add(ex);
                     }
@@ -204,11 +233,17 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Marks <see cref="Current"/> as outdated and requiring re-evaluation. </summary>
         private void InvalidateCurrent()
         {
-            _current = new Lazy<TState>(_refresh, LazyThreadSafetyMode.PublicationOnly);
+            _current = new Lazy<TState>(_refreshClosure, LazyThreadSafetyMode.PublicationOnly);
         }
 
         /// <summary> Construct the state from the sub-projections. </summary>
-        private readonly Func<TState> _refresh;
+        private readonly Func<IReifiedProjection<TEvent>[], TState> _refresh;
+
+        /// <summary>
+        ///     Closure that calls <see cref="_refresh"/> on <see cref="_reifiedProjections"/>,
+        ///     to avoid re-allocating it every so often.
+        /// </summary>
+        private readonly Func<TState> _refreshClosure;
 
         public uint Sequence { get; private set; }
 

@@ -334,5 +334,24 @@ namespace Lokad.AzureEventStore.Projections
                 return false;
             }
         }
+
+        private ReifiedProjection(ReifiedProjection<TEvent, TState> clone)
+        {
+            _projection = clone._projection;
+            _cacheProvider = clone._cacheProvider;
+            Current = clone.Current;
+            Sequence = clone.Sequence;
+            Name = clone.Name;
+            _log = clone._log;
+            _possiblyInconsistent = clone._possiblyInconsistent;
+        }
+
+        /// <inheritdoc/>
+        IReifiedProjection<TEvent, TState> IReifiedProjection<TEvent, TState>.Clone() =>
+            new ReifiedProjection<TEvent, TState>(this);
+
+        /// <inheritdoc/>
+        IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() =>
+            new ReifiedProjection<TEvent, TState>(this);
     }
 }
