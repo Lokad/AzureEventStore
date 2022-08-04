@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Azure;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
 
 namespace Lokad.AzureEventStore.Drivers
 {
@@ -35,12 +39,12 @@ namespace Lokad.AzureEventStore.Drivers
             Prefix + nth.ToString("D5") + (compact ? CompactSuffix : "");
 
         /// <summary> Parse the numeric suffix in 'event.NNNNN' blob name. </summary>
-        public static int ParseNth(this CloudBlob blob) =>
+        public static int ParseNth(this BlobItem blob) =>
             ParseNth(blob.Name);
 
         public static int ParseNth(string str)
         {
-            if (str == "events.00000") 
+            if (str == "events.00000")
                 return 0;
 
             if (str.Length != "events.NNNNN".Length)
@@ -67,10 +71,10 @@ namespace Lokad.AzureEventStore.Drivers
             bool likelyLong,
             Func<CancellationToken, Task<T>> retried)
         {
-            for (var retry = 5;; --retry)
+            for (var retry = 5; ; --retry)
             {
                 var delayDuration = likelyLong
-                    ? TimeSpan.FromSeconds(60) 
+                    ? TimeSpan.FromSeconds(60)
                     : TimeSpan.FromSeconds(3);
 
                 // If the first request did not succeed, we need to prepare for the possibility
@@ -92,17 +96,17 @@ namespace Lokad.AzureEventStore.Drivers
                             // not the original 'cancel'
                             continue;
                         }
-                        catch (StorageException e)
-                            when (e.InnerException is OperationCanceledException && 
+                        catch (RequestFailedException e)
+                            when (e.InnerException is OperationCanceledException &&
                                   !cancel.IsCancellationRequested && retry > 0)
                         {
                             // Cancellation due to 'delay' or internal timeout, 
                             // not the original 'cancel' (and was wrapped by the Azure Storage
-                            // library in a StorageException). 
+                            // library in a RequestFailedException). 
                             continue;
                         }
-                        catch (StorageException e)
-                            when (e.RequestInformation.HttpStatusCode >= 500 && retry > 0)
+                        catch (RequestFailedException e)
+                            when (e.Status >= 500 && retry > 0)
                         {
                             // Cancellation due to HTTP 500
                             continue;
@@ -113,28 +117,33 @@ namespace Lokad.AzureEventStore.Drivers
         }
 
         /// <summary> List all event blobs, in the correct order. </summary>
-        public static async Task<List<CloudBlob>> ListEventBlobsAsync(
-            this CloudBlobContainer container,
+        public static async Task<List<BlobItem>> ListEventBlobsAsync(
+            this BlobContainerClient container,
             CancellationToken cancel = default)
         {
-            var freshBlobList = new List<CloudBlob>();
-            var token = new BlobContinuationToken();
-            while (token != null)
+            var freshBlobList = new List<BlobItem>();
+            var token = default(string);
+
+            do
             {
-                var list = await container.ListBlobsSegmentedAsync(
-                    useFlatBlobListing: true,
+                var result = container.GetBlobsAsync(traits: BlobTraits.Metadata,
+                    states: BlobStates.None,
                     prefix: Prefix,
-                    blobListingDetails: BlobListingDetails.Metadata,
-                    maxResults: null,
-                    currentToken: token,
-                    options: new BlobRequestOptions(),
-                    operationContext: new OperationContext(),
-                    cancellationToken: cancel);
+                    cancellationToken: cancel)
+                    .AsPages(token);
 
-                token = list.ContinuationToken;
+                await foreach (var page in result)
+                {
+                    foreach (var item in page.Values)
+                    {
+                        if (!(item is BlobItem blob)) continue;
+                        freshBlobList.Add(blob);
+                    }
 
-                freshBlobList.AddRange(list.Results.OfType<CloudBlob>());
-            }
+                    token = page.ContinuationToken;
+                }
+
+            } while (!string.IsNullOrEmpty(token));
 
             // Sort the blobs by name (thanks to NthBlobName, this sorts them in 
             // chronological order), and with the compacted blob *after* the corresponding
@@ -152,61 +161,53 @@ namespace Lokad.AzureEventStore.Drivers
             }
 
             return freshBlobList;
-        }        
+        }
 
         /// <summary> Return a reference to the N-th event blob in the container. </summary>
         /// <remarks> Blob may or may not exist. </remarks>
-        public static CloudAppendBlob ReferenceEventBlob(this CloudBlobContainer container, int nth)
+        public static AppendBlobClient ReferenceEventBlob(this BlobContainerClient container, int nth)
         {
-            return container.GetAppendBlobReference(NthBlobName(nth));
+            return container.GetAppendBlobClient(NthBlobName(nth));
         }
 
         /// <summary> Creates the blob if it does not exist. Do nothing if it already does.  </summary>
         public static async Task CreateIfNotExistsAsync(
-            this CloudAppendBlob blob,
+            this AppendBlobClient blob,
             CancellationToken cancel = default)
         {
             try
             {
-                await blob.CreateOrReplaceAsync(
-                    operationContext: new OperationContext(),
-                    options: new BlobRequestOptions(),
-                    accessCondition: new AccessCondition { IfNoneMatchETag = "*" },
-                    cancellationToken: cancel);
+                await blob.CreateAsync(new AppendBlobCreateOptions());
             }
-            catch (StorageException e)
+            catch (RequestFailedException e)
             {
-                if (e.RequestInformation.ExtendedErrorInformation.ErrorCode != "BlobAlreadyExists") throw;
+                if (e.ErrorCode != "BlobAlreadyExists") throw;
             }
         }
 
         /// <summary> True if the exception denotes a "append position is too early" situation. </summary>
-        public static bool IsCollision(this StorageException e)
+        public static bool IsCollision(this RequestFailedException e)
         {
-            return e.RequestInformation.HttpStatusCode == 412;
+            return e.Status == 412;
         }
 
         /// <summary> True if the exception denotes a "too many appends on blob" situation. </summary>
-        public static bool IsMaxReached(this StorageException e)
+        public static bool IsMaxReached(this RequestFailedException e)
         {
-            return e.RequestInformation?.ExtendedErrorInformation?.ErrorCode == "BlockCountExceedsLimit";
+            return e.ErrorCode == "BlockCountExceedsLimit";
         }
 
         /// <summary> Append bytes to a blob only if at the provided append position. </summary>
-        /// <remarks> This will throw a <see cref="StorageException"/> on conflict. </remarks>
+        /// <remarks> This will throw a <see cref="RequestFailedException"/> on conflict. </remarks>
         public static Task AppendTransactionalAsync(
-            this CloudAppendBlob blob,
+            this AppendBlobClient blob,
             byte[] data,
             long position,
             CancellationToken cancel = default)
         {
-            return blob.AppendFromByteArrayAsync(
-                accessCondition: new AccessCondition {IfAppendPositionEqual = position},
-                buffer: data,
-                index: 0,
-                count: data.Length,
-                options: new BlobRequestOptions(),
-                operationContext: new OperationContext(),
+            return blob.AppendBlockAsync(
+                new MemoryStream(data, 0, data.Length),
+                conditions: new AppendBlobRequestConditions { IfAppendPositionEqual = position },
                 cancellationToken: cancel);
         }
     }

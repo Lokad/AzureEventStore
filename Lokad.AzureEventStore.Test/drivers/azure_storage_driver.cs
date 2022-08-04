@@ -5,16 +5,15 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Auth;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Azure.Storage;
+using Azure.Storage.Blobs;
 using Xunit;
 
 namespace Lokad.AzureEventStore.Test.drivers
 {
     public class azure_storage_driver : storage_driver
     {
-        private CloudBlobContainer _container;
+        private BlobContainerClient _container;
 
         internal override IStorageDriver GetFreshStorageDriver()
         {
@@ -30,8 +29,10 @@ namespace Lokad.AzureEventStore.Test.drivers
             if (split == null || split.Length != 2)
                 throw new Exception("Environment variable AZURE_CONNECTION should be 'account:key'");
 
-            var account = new CloudStorageAccount(new StorageCredentials(split[0], split[1]), true);
-            _container = account.CreateCloudBlobClient().GetContainerReference(Guid.NewGuid().ToString());
+            var credential = new StorageSharedKeyCredential(split[0], split[1]);
+            var serviceUri = new Uri($"https://{split[0]}.blob.core.windows.net");
+            var account = new BlobServiceClient(serviceUri, credential);
+            _container = account.GetBlobContainerClient(Guid.NewGuid().ToString());
             _container.CreateIfNotExists();
             return new AzureStorageDriver(_container);
         }
@@ -50,7 +51,7 @@ namespace Lokad.AzureEventStore.Test.drivers
             }
         }
 
-        [Fact(Skip="Long")]
+        [Fact(Skip = "Long")]
         public async Task compaction()
         {
             var sw = Stopwatch.StartNew();

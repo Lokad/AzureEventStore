@@ -77,7 +77,7 @@ namespace Lokad.AzureEventStore.Tool
                             {
                                 Console.WriteLine("Blob {0}: {1:F2} MB from seq {2}",
                                     asAzure.Blobs[i].Name,
-                                    asAzure.Blobs[i].Properties.Length / (1024.0 * 1024.0),
+                                    asAzure.Blobs[i].Properties.ContentLength.Value / (1024.0 * 1024.0),
                                     i < asAzure.FirstKey.Count ? asAzure.FirstKey[i] : maxSeq);
                             }
                         }
