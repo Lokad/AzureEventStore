@@ -122,28 +122,21 @@ namespace Lokad.AzureEventStore.Drivers
             CancellationToken cancel = default)
         {
             var freshBlobList = new List<BlobItem>();
-            var token = default(string);
 
-            do
+            var result = container.GetBlobsAsync(traits: BlobTraits.Metadata,
+                states: BlobStates.None,
+                prefix: Prefix,
+                cancellationToken: cancel)
+                .AsPages(null);
+
+            await foreach (var page in result)
             {
-                var result = container.GetBlobsAsync(traits: BlobTraits.Metadata,
-                    states: BlobStates.None,
-                    prefix: Prefix,
-                    cancellationToken: cancel)
-                    .AsPages(token);
-
-                await foreach (var page in result)
+                foreach (var item in page.Values)
                 {
-                    foreach (var item in page.Values)
-                    {
-                        if (!(item is BlobItem blob)) continue;
-                        freshBlobList.Add(blob);
-                    }
-
-                    token = page.ContinuationToken;
+                    if (!(item is BlobItem blob)) continue;
+                    freshBlobList.Add(blob);
                 }
-
-            } while (!string.IsNullOrEmpty(token));
+            }
 
             // Sort the blobs by name (thanks to NthBlobName, this sorts them in 
             // chronological order), and with the compacted blob *after* the corresponding

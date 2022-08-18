@@ -66,26 +66,19 @@ namespace Lokad.AzureEventStore.Cache
 
             var result = new List<BlobItem>();
 
-            var token = default(string);
-            while (true)
+            var list = _container.GetBlobsAsync(traits: BlobTraits.Metadata,
+               states: BlobStates.None,
+               prefix: stateName,
+               cancellationToken: default(CancellationToken))
+               .AsPages(null);
+
+            await foreach (var page in list)
             {
-                var list = _container.GetBlobsAsync(traits: BlobTraits.Metadata,
-                   states: BlobStates.None,
-                   prefix: stateName,
-                   cancellationToken: default(CancellationToken))
-                   .AsPages(token);
-
-                await foreach (var page in list)
+                foreach (var item in page.Values)
                 {
-                    foreach (var item in page.Values)
-                    {
-                        if (!(item is BlobItem blob)) continue;
-                        result.Add(blob);
-                    }
-
-                    token = page.ContinuationToken;
+                    if (!(item is BlobItem blob)) continue;
+                    result.Add(blob);
                 }
-                if (string.IsNullOrEmpty(token)) break;
             }
 
             return result.OrderByDescending(b => b.Name).ToArray();

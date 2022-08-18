@@ -17,14 +17,14 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>
   <!-- When developing locally, comment out this block and uncomment the one below it. -->
-  <!--<ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Lokad.AzureEventStore" Version="6.0.2" />
     <PackageReference Include="Lokad.AzureEventStore.Cache" Version="1.0.0" />
-  </ItemGroup>-->
+  </ItemGroup>
   
-  <ItemGroup>
+  <!--<ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
-  </ItemGroup>
+  </ItemGroup>-->
   
 </Project>
