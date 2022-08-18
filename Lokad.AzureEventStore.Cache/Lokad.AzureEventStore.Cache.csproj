@@ -14,14 +14,14 @@
 
   <!-- When working locally, comment out this block and uncomment the one below. -->
 
-  <!--<ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Lokad.AzureEventStore" Version="5.0.0" />
-  </ItemGroup>-->
+  </ItemGroup>
 
   
-  <ItemGroup>
+  <!--<ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
-  </ItemGroup>
+  </ItemGroup>-->
   
 
   <ItemGroup>
