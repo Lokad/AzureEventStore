@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <Version>1.1.1</Version>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <PackageIcon>lokad.png</PackageIcon>
@@ -18,15 +18,15 @@
     <PackageReference Include="Lokad.AzureEventStore" Version="5.0.0" />
   </ItemGroup>
 
-  <!--
-  <ItemGroup>
+  
+  <!--<ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
-  </ItemGroup>
-  -->
+  </ItemGroup>-->
+  
 
   <ItemGroup>
     <PackageReference Include="Lokad.LargeImmutable" Version="1.0.0" />
-    <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="9.4.1" />
+	<PackageReference Include="Azure.Storage.Blobs" Version="12.12.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>
 

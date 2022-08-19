@@ -14,7 +14,7 @@ namespace Lokad.AzureEventStore.Tool
 {
     static partial class Program
     {
-        static readonly IReadOnlyDictionary<string,Action<string[]>> Commands = new Dictionary<string, Action<string[]>>
+        static readonly IReadOnlyDictionary<string, Action<string[]>> Commands = new Dictionary<string, Action<string[]>>
         {
             { "use", CmdUse },
             { "alias", CmdAlias },
@@ -201,18 +201,18 @@ namespace Lokad.AzureEventStore.Tool
 
                 Status("Connecting...");
 
-                Task.Run((Func<Task>) (async () =>
+                Task.Run((Func<Task>)(async () =>
                 {
                     Status("Current size:");
                     var maxPos = await driver.GetPositionAsync();
-                    Console.WriteLine("Current size: {0:F2} MB", maxPos/(1024.0*1024.0));
+                    Console.WriteLine("Current size: {0:F2} MB", maxPos / (1024.0 * 1024.0));
 
                     Status("Current seq:");
                     var maxSeq = await driver.GetLastKeyAsync();
                     Console.WriteLine("Current seq: {0}", maxSeq);
 
                     var asStatsDriver = driver as StatsDriverWrapper;
-                    var asReadOnlyDriver = (asStatsDriver?.Inner ?? driver) as ReadOnlyDriverWrapper;                    
+                    var asReadOnlyDriver = (asStatsDriver?.Inner ?? driver) as ReadOnlyDriverWrapper;
                     var asAzure = (asReadOnlyDriver?.Wrapped ?? asStatsDriver?.Inner ?? driver) as AzureStorageDriver;
 
                     if (asAzure != null)
@@ -221,7 +221,7 @@ namespace Lokad.AzureEventStore.Tool
                         {
                             Console.WriteLine("Blob {0}: {1:F2} MB from seq {2}",
                                 asAzure.Blobs[i].Name,
-                                asAzure.Blobs[i].Properties.Length/(1024.0*1024.0),
+                                asAzure.Blobs[i].Properties.ContentLength.Value / (1024.0 * 1024.0),
                                 i < asAzure.FirstKey.Count ? asAzure.FirstKey[i] : maxSeq);
                         }
                     }
@@ -245,8 +245,8 @@ namespace Lokad.AzureEventStore.Tool
                         Status("Fetching: {0}/{1} ({2:F2}/{3:F2} MB)",
                             stream.Sequence,
                             maxSeq,
-                            (stream.Position - start)/(1024.0*1024.0),
-                            (maxPos - start)/(1024.0*1024.0));
+                            (stream.Position - start) / (1024.0 * 1024.0),
+                            (maxPos - start) / (1024.0 * 1024.0));
 
                         more = await fetch;
                     } while (more());
@@ -256,8 +256,8 @@ namespace Lokad.AzureEventStore.Tool
                 Console.WriteLine("Fetched `{0}` ({1} events, {2:F2} MB) in {3:F2}s.",
                     name,
                     list.Count,
-                    (stream.Position - start)/(1024.0*1024.0),
-                    sw.ElapsedMilliseconds/1000.0);
+                    (stream.Position - start) / (1024.0 * 1024.0),
+                    sw.ElapsedMilliseconds / 1000.0);
 
                 Fetched.Add(name, list);
 
@@ -294,7 +294,7 @@ namespace Lokad.AzureEventStore.Tool
                 {
                     Console.WriteLine("Stream '{0}' does not exist.", args[1]);
                     return;
-                }   
+                }
             }
 
             // The stream to which to append
@@ -307,8 +307,8 @@ namespace Lokad.AzureEventStore.Tool
 
                 var sw = Stopwatch.StartNew();
                 var events = 0;
-                
-                Task.Run((Func<Task>) (async () =>
+
+                Task.Run((Func<Task>)(async () =>
                 {
                     Status("Current destination seq: ...");
                     var bakSeq = await dstDriver.GetLastKeyAsync();
@@ -325,12 +325,12 @@ namespace Lokad.AzureEventStore.Tool
                         var list = new List<KeyValuePair<uint, JObject>>();
                         for (var i = 0; i < 1000 && events < @from.Count; ++i, ++events, ++bakSeq)
                             list.Add(new KeyValuePair<uint, JObject>(bakSeq, @from[events].Event));
-                        
+
                         events += list.Count;
-                        
+
                         await dst.WriteAsync(list);
 
-                    } 
+                    }
 
                 })).Wait();
 
@@ -350,9 +350,9 @@ namespace Lokad.AzureEventStore.Tool
             {
                 Console.WriteLine("Usage: filter <expression>");
                 Console.WriteLine("Filters the current stream according to expressions. Examples:");
-                Console.WriteLine("  filter Type == 'abc' "); 
+                Console.WriteLine("  filter Type == 'abc' ");
                 Console.WriteLine("  filter Date < '2015-05-07' ");
-                Console.WriteLine("  filter Error");         
+                Console.WriteLine("  filter Error");
                 return;
             }
 
@@ -377,13 +377,13 @@ namespace Lokad.AzureEventStore.Tool
             }
             else if (args.Length == 3)
             {
-                var data = Expression.Parameter(typeof (JObject));
-                var seq = Expression.Parameter(typeof (uint));
+                var data = Expression.Parameter(typeof(JObject));
+                var seq = Expression.Parameter(typeof(uint));
 
                 var left = ParseOperand(args[0], seq, data);
                 var op = args[1];
                 var right = ParseOperand(args[2], seq, data);
-                var compare = Expression.Call(typeof (Program), nameof(CompareJValue), new Type[0], left, right);
+                var compare = Expression.Call(typeof(Program), nameof(CompareJValue), new Type[0], left, right);
 
                 Expression result;
 
@@ -445,18 +445,18 @@ namespace Lokad.AzureEventStore.Tool
 
             if (a.Type == JTokenType.Boolean)
                 if (b.Type == JTokenType.Boolean)
-                    return Comparer<bool>.Default.Compare((bool) a.Value, (bool) b.Value);
+                    return Comparer<bool>.Default.Compare((bool)a.Value, (bool)b.Value);
 
             if (a.Type == JTokenType.String)
                 if (b.Type == JTokenType.String)
-                    return string.Compare((string) a.Value, (string) b.Value, StringComparison.Ordinal);
+                    return string.Compare((string)a.Value, (string)b.Value, StringComparison.Ordinal);
 
             if (a.Type == JTokenType.Float)
             {
                 if (b.Type == JTokenType.Float)
-                    return Comparer<float>.Default.Compare((float) a.Value, (float) b.Value);
+                    return Comparer<float>.Default.Compare((float)a.Value, (float)b.Value);
                 if (b.Type == JTokenType.Integer)
-                    return Comparer<float>.Default.Compare((float) a.Value, (long) b.Value);
+                    return Comparer<float>.Default.Compare((float)a.Value, (long)b.Value);
             }
             else if (a.Type == JTokenType.Integer)
             {
@@ -466,7 +466,7 @@ namespace Lokad.AzureEventStore.Tool
                     return Comparer<long>.Default.Compare((long)a.Value, (long)b.Value);
             }
 
-            return Comparer<JTokenType>.Default.Compare(a.Type, b.Type);            
+            return Comparer<JTokenType>.Default.Compare(a.Type, b.Type);
         }
 
         /// <summary>
@@ -487,7 +487,7 @@ namespace Lokad.AzureEventStore.Tool
                 token = token.Substring(1, token.Length - 2).Replace("''", "'");
                 return Expression.New(
                     // ReSharper disable once AssignNullToNotNullAttribute
-                    typeof(JValue).GetConstructor(new []{ typeof (string) }),
+                    typeof(JValue).GetConstructor(new[] { typeof(string) }),
                     Expression.Constant(token));
             }
 
@@ -617,7 +617,7 @@ namespace Lokad.AzureEventStore.Tool
 
         #region State
 
-        static readonly Dictionary<string, IReadOnlyList<EventData>> Fetched = 
+        static readonly Dictionary<string, IReadOnlyList<EventData>> Fetched =
             new Dictionary<string, IReadOnlyList<EventData>>();
 
         static IReadOnlyList<EventData> Current { get; set; }
@@ -637,13 +637,13 @@ namespace Lokad.AzureEventStore.Tool
                 var asWrap = sd as ReadOnlyDriverWrapper;
                 if (asWrap == null) return new Disposable();
 
-                sd = asWrap.Wrapped;                
+                sd = asWrap.Wrapped;
             }
         }
 
-        private sealed class Disposable : IDisposable 
+        private sealed class Disposable : IDisposable
         {
-            public void Dispose() {}
+            public void Dispose() { }
         }
 
         #endregion

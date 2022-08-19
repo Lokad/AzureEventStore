@@ -1,7 +1,8 @@
 using System;
 using System.Text.RegularExpressions;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Auth;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Sas;
 
 namespace Lokad.AzureEventStore.Tool
 {
@@ -22,22 +23,19 @@ namespace Lokad.AzureEventStore.Tool
                 var account = new Regex("AccountName=([^;]*)").Match(arg).Groups[1].Value;
                 var key = new Regex("AccountKey=([^;]*)").Match(arg).Groups[1].Value;
 
-                var c = new StorageCredentials(account, key);
-                var ca = new CloudStorageAccount(c, true);
+                var c = new StorageSharedKeyCredential(account, key);
+                var u = new Uri($"https://{account}.blob.core.windows.net");
+                var ca = new BlobServiceClient(u, c);
 
-                var sas = ca.GetSharedAccessSignature(new SharedAccessAccountPolicy
-                {
-                    Permissions = SharedAccessAccountPermissions.List | SharedAccessAccountPermissions.Read,
-                    Protocols = SharedAccessProtocol.HttpsOnly,
-                    SharedAccessExpiryTime = DateTimeOffset.UtcNow + TimeSpan.FromDays(365),
-                    Services = SharedAccessAccountServices.Blob,
-                    ResourceTypes =
-                        SharedAccessAccountResourceTypes.Container | SharedAccessAccountResourceTypes.Object |
-                        SharedAccessAccountResourceTypes.Service,
-                    SharedAccessStartTime = DateTimeOffset.UtcNow
-                });
+                var sas = ca.GenerateAccountSasUri(
+                    permissions: AccountSasPermissions.List | AccountSasPermissions.Read,
+                    expiresOn: DateTimeOffset.UtcNow + TimeSpan.FromDays(365),
+                    resourceTypes:
+                        AccountSasResourceTypes.Container | AccountSasResourceTypes.Object |
+                        AccountSasResourceTypes.Service
+                );
 
-                var signed = "BlobEndpoint=" + ca.BlobStorageUri.PrimaryUri + ";SharedAccessSignature=" + sas;
+                var signed = "BlobEndpoint=" + ca.Uri + ";SharedAccessSignature=" + sas;
 
                 var container = new Regex("Container=[^;]*").Match(arg);
                 if (container.Success)

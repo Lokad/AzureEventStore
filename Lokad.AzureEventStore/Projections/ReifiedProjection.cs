@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Streams;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Azure.Storage.Blobs;
 
 namespace Lokad.AzureEventStore.Projections
 {

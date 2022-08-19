@@ -1,8 +1,8 @@
 ﻿using System;
 using System.IO;
 using Lokad.AzureEventStore.Drivers;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Azure.Storage;
+using Azure.Storage.Blobs;
 
 namespace Lokad.AzureEventStore
 {
@@ -68,13 +68,14 @@ namespace Lokad.AzureEventStore
 
             if (IsAzureStorage)
             {
-                var account = CloudStorageAccount.Parse(cs);
-                var client = account.CreateCloudBlobClient();
+                var account = new BlobServiceClient(cs);
+                // HINT: Root container name must be "$root".
+                // docs: https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blob-container-create#create-the-root-container
                 var container = string.IsNullOrWhiteSpace(cname)
-                    ? client.GetRootContainerReference()
-                    : client.GetContainerReference(cname);
+                    ? account.GetBlobContainerClient("$root")
+                    : account.GetBlobContainerClient(cname);
 
-                if (!client.Credentials.IsSAS)
+                if (!account.CanGenerateAccountSasUri)
                     container.CreateIfNotExistsAsync().Wait();
 
                 driver = new AzureStorageDriver(container);

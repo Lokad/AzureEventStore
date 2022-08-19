@@ -4,8 +4,11 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using System.Threading;
+using Azure.Storage.Blobs.Specialized;
 
 namespace Lokad.AzureEventStore.Cache
 {
@@ -16,8 +19,8 @@ namespace Lokad.AzureEventStore.Cache
     /// </remarks>
     public sealed class AzureCacheProvider : IProjectionCacheProvider
     {
-        private readonly CloudBlobContainer _container;
-        
+        private readonly BlobContainerClient _container;
+
         /// <summary>
         ///     If true, will read blobs from the cache. If false, calls to 
         ///     <see cref="OpenReadAsync(string)"/> return null.
@@ -41,7 +44,7 @@ namespace Lokad.AzureEventStore.Cache
         /// </remarks>
         public int MaxCacheBlobsCount { get; set; } = 100;
 
-        public AzureCacheProvider(CloudBlobContainer container)
+        public AzureCacheProvider(BlobContainerClient container)
         {
             _container = container;
         }
@@ -51,36 +54,31 @@ namespace Lokad.AzureEventStore.Cache
         ///     Returned blobs are listed by descending name (i.e. most recent
         ///     first).
         /// </remarks>
-        private async Task<CloudBlockBlob[]> Blobs(string stateName)
+        private async Task<BlobItem[]> Blobs(string stateName)
         {
             // Calling CreateIfNotExists with insufficient privilege will
             // throw an exception _even if_ the container _exists_.
             // Attempting to create the container only if it doesn't exist
             // allows to read existing state caches even if the caller does not
             // have sufficient permission to create the container.
-            if (AllowWrite && ! await _container.ExistsAsync().ConfigureAwait(false))
+            if (AllowWrite && !await _container.ExistsAsync().ConfigureAwait(false))
                 await _container.CreateIfNotExistsAsync().ConfigureAwait(false);
 
-            var result = new List<CloudBlockBlob>();
+            var result = new List<BlobItem>();
 
-            var ct = default(BlobContinuationToken);
-            while (true)
+            var list = _container.GetBlobsAsync(traits: BlobTraits.Metadata,
+               states: BlobStates.None,
+               prefix: stateName,
+               cancellationToken: default(CancellationToken))
+               .AsPages(null);
+
+            await foreach (var page in list)
             {
-                var list = await _container.ListBlobsSegmentedAsync(
-                    stateName,
-                    /* useFlatBlobListing: */true,
-                    BlobListingDetails.None,
-                    /* max results */ null, ct,
-                    new BlobRequestOptions(),
-                    new OperationContext());
-
-                ct = list.ContinuationToken;
-
-                foreach (var item in list.Results)
-                    if (item is CloudBlockBlob blob)
-                        result.Add(blob);
-
-                if (ct == null) break;
+                foreach (var item in page.Values)
+                {
+                    if (!(item is BlobItem blob)) continue;
+                    result.Add(blob);
+                }
             }
 
             return result.OrderByDescending(b => b.Name).ToArray();
@@ -92,13 +90,13 @@ namespace Lokad.AzureEventStore.Cache
 
             return Enumerate(await Blobs(stateName));
 
-            IEnumerable<Task<CacheCandidate>> Enumerate(CloudBlockBlob[] orderedBlobs)
+            IEnumerable<Task<CacheCandidate>> Enumerate(BlobItem[] orderedBlobs)
             {
                 foreach (var blob in orderedBlobs)
-                    yield return Task.Run(async () => 
+                    yield return Task.Run(async () =>
                         new CacheCandidate(
-                            "blob:" + blob.Name, 
-                            await blob.OpenReadAsync()));
+                            "blob:" + blob.Name,
+                            await _container.GetBlobClient(blob.Name).OpenReadAsync()));
             }
         }
 
@@ -119,19 +117,17 @@ namespace Lokad.AzureEventStore.Cache
             {
                 try
                 {
-                    await _container.GetBlockBlobReference(all[i].Name).DeleteAsync();
+                    await _container.GetBlockBlobClient(all[i].Name).DeleteAsync();
                 }
                 catch
                 {
                     // It's not a problem if deletion failed.
                 }
             }
-            
-            var blob = _container.GetBlockBlobReference(name);
-            var stream = await blob.OpenWriteAsync(
-                AccessCondition.GenerateIfNotExistsCondition(),
-                new BlobRequestOptions(),
-                new OperationContext());
+
+            var blob = _container.GetBlockBlobClient(name);
+
+            var stream = await blob.OpenWriteAsync(true);
 
             try
             {
