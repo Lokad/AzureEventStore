@@ -361,11 +361,12 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             var thrownByBuilder = false;
 
+            Transaction<TEvent, TState> transaction = null;
             try
             {
                 while (true)
                 {
-                    var transaction = new Transaction<TEvent, TState>(_projection.Clone());
+                    transaction = new Transaction<TEvent, TState>(_projection.Clone());
 
                     thrownByBuilder = true;
                     var result = builder(transaction);
@@ -375,7 +376,10 @@ namespace Lokad.AzureEventStore.Wrapper
 
                     // No events to append, just return result
                     if (events.Length == 0)
+                    {
+                        transaction.HandleCommit();
                         return new AppendResult<T>(0, 0, result);
+                    }
 
                     // No need to check for corrupted events, since the transaction
                     // automatically applies them on the fly.
@@ -394,18 +398,24 @@ namespace Lokad.AzureEventStore.Wrapper
                         // that were just added), then return append information.
                         CatchUpLocal();
                         NotifyRefresh();
+                        transaction.HandleCommit();
                         return new AppendResult<T>(events.Length, (uint)done, result);
                     }
                 }
             }
             catch (OperationCanceledException)
             {
+                transaction?.HandleAbort();
+
                 throw;
             }
             catch (Exception e)
             {
                 if (!thrownByBuilder)
                     _log?.Error("While appending events", e);
+
+                transaction?.HandleAbort();
+
                 throw;
             }
         }
@@ -428,11 +438,13 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             var thrownByBuilder = false;
 
+            Transaction<TEvent, TState> transaction = null;
+
             try
             {
                 while (true)
                 {
-                    var transaction = new Transaction<TEvent, TState>(_projection.Clone());
+                    transaction = new Transaction<TEvent, TState>(_projection.Clone());
 
                     thrownByBuilder = true;
                     builder(transaction);
@@ -442,7 +454,10 @@ namespace Lokad.AzureEventStore.Wrapper
 
                     // No events to append
                     if (events.Length == 0)
+                    {
+                        transaction.HandleCommit();
                         return new AppendResult(0, 0);
+                    }
 
                     // No need to check for corrupted events, since the transaction
                     // automatically applies them on the fly.
@@ -461,18 +476,24 @@ namespace Lokad.AzureEventStore.Wrapper
                         // that were just added), then return append information.
                         CatchUpLocal();
                         NotifyRefresh();
+                        transaction.HandleCommit();
                         return new AppendResult(events.Length, (uint)done);
                     }
                 }
             }
             catch (OperationCanceledException)
             {
+                transaction?.HandleAbort();
+
                 throw;
             }
             catch (Exception e)
             {
                 if (!thrownByBuilder)
                     _log?.Error("While appending events", e);
+
+                transaction?.HandleAbort();
+
                 throw;
             }
         }

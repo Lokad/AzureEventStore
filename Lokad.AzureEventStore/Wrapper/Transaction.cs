@@ -16,6 +16,18 @@ namespace Lokad.AzureEventStore.Wrapper
         where TState : class
         where TEvent : class
     {
+        /// <summary> Delegate invoked by event <see cref="OnAbort"/> </summary>
+        public delegate void AbortHandler();
+
+        /// <summary> Delegate invoked by event <see cref="OnCommit"/> </summary>
+        public delegate void CommitHandler(IReadOnlyList<TEvent> events);
+
+        /// <summary> Event invoked if the transaction is aborted.  </summary>
+        public event AbortHandler OnAbort;
+
+        /// <summary> Event is invoked if the transaction is committed. </summary>
+        public event CommitHandler OnCommit;
+
         /// <summary>
         ///     Any events added to the transaction are kept here. 
         /// </summary>
@@ -73,6 +85,28 @@ namespace Lokad.AzureEventStore.Wrapper
         ///     transaction. 
         /// </summary>
         public void Abort() => Aborted = true;
+
+        /// <summary>
+        ///     Method called when the transaction is confirmed to have been aborted.
+        /// </summary>
+        internal void HandleAbort()
+        {
+            OnAbort?.Invoke();
+        }
+
+        /// <summary>
+        ///     Method called when the transaction has a reached a point where it can
+        ///     be considered committed, because: all its events were written, or
+        ///     it produced no events, or it was aborted. The two former cases invoke
+        ///     <see cref="OnCommit"/>, the latter <see cref="OnAbort"/>.
+        /// </summary>
+        internal void HandleCommit()
+        {
+            if (Aborted)
+                HandleAbort();
+            else
+                OnCommit?.Invoke(_events);
+        }
 
         internal Transaction(IReifiedProjection<TEvent, TState> proj)
         {

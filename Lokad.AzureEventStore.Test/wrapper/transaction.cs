@@ -2,12 +2,9 @@
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
 using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
-using System.Linq;
 using System.Runtime.Serialization;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -77,6 +74,33 @@ namespace Lokad.AzureEventStore.Test.wrapper
         }
 
         [Fact]
+        public async Task OnCommit()
+        {
+            var abortInvoked = false;
+            var commitAInvoked = false;
+            var commitBInvoked = false;
+
+            var ew = Init();
+            var value = await ew.TransactionAsync(transaction =>
+            {
+                transaction.OnAbort += () => abortInvoked = true;
+                transaction.OnCommit += e =>
+                {
+                    Assert.Equal(1, e.Count);
+                    Assert.Equal(15u, e[0].Value);
+                    commitAInvoked = true;
+                };
+                transaction.Add(new TstEvent(15));
+                transaction.OnCommit += _ => commitBInvoked = true;
+                return transaction.State.Value[0];
+            });
+
+            Assert.True(commitAInvoked);
+            Assert.True(commitBInvoked);
+            Assert.False(abortInvoked);
+        }
+
+        [Fact]
         public async Task Abort()
         {
             var ew = Init();
@@ -89,6 +113,52 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             Assert.Equal(20, value.More);
             Assert.Empty(ew.Current.Value);
+        }
+
+        [Fact]
+        public async Task OnAbort()
+        {
+            var abortInvoked = false;
+            var commitInvoked = false;
+
+            var ew = Init();
+            var value = await ew.TransactionAsync(transaction =>
+            {
+                transaction.Add(new TstEvent(15));
+                transaction.OnAbort += () => abortInvoked = true;
+                transaction.OnCommit += _ => commitInvoked = true;
+                transaction.Abort();
+                return 20;
+            });
+
+            Assert.True(abortInvoked);
+            Assert.False(commitInvoked);
+        }
+
+        [Fact]
+        public async Task OnAbortException()
+        {
+            var abortInvoked = false;
+            var commitInvoked = false;
+
+            var ew = Init();
+            try
+            {
+                await ew.TransactionAsync(transaction =>
+                {
+                    transaction.Add(new TstEvent(15));
+                    transaction.OnAbort += () => abortInvoked = true;
+                    transaction.OnCommit += _ => commitInvoked = true;
+                    throw new Exception("Bad");
+                });
+
+                Assert.True(false);
+            }
+            catch
+            {
+                Assert.True(abortInvoked);
+                Assert.False(commitInvoked);
+            }
         }
     }
 }
