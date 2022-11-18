@@ -75,7 +75,7 @@ namespace Lokad.AzureEventStore
                     ? account.GetBlobContainerClient("$root")
                     : account.GetBlobContainerClient(cname);
 
-                if (!account.CanGenerateAccountSasUri)
+                if (account.CanGenerateAccountSasUri)
                     container.CreateIfNotExistsAsync().Wait();
 
                 driver = new AzureStorageDriver(container);
