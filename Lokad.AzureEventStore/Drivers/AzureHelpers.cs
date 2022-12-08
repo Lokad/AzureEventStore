@@ -38,10 +38,6 @@ namespace Lokad.AzureEventStore.Drivers
         private static string NthBlobName(int nth, bool compact = false) =>
             Prefix + nth.ToString("D5") + (compact ? CompactSuffix : "");
 
-        /// <summary> Parse the numeric suffix in 'event.NNNNN' blob name. </summary>
-        public static int ParseNth(this BlobItem blob) =>
-            ParseNth(blob.Name);
-
         public static int ParseNth(string str)
         {
             if (str == "events.00000")
@@ -117,11 +113,12 @@ namespace Lokad.AzureEventStore.Drivers
         }
 
         /// <summary> List all event blobs, in the correct order. </summary>
-        public static async Task<List<BlobItem>> ListEventBlobsAsync(
+        public static async Task<List<EventBlob>> ListEventBlobsAsync(
             this BlobContainerClient container,
             CancellationToken cancel = default)
         {
-            var freshBlobList = new List<BlobItem>();
+            var eventBlobs = new List<EventBlob>();
+            var rawBlobs = new List<BlobItem>();
 
             var result = container.GetBlobsAsync(traits: BlobTraits.Metadata,
                 states: BlobStates.None,
@@ -134,26 +131,47 @@ namespace Lokad.AzureEventStore.Drivers
                 foreach (var item in page.Values)
                 {
                     if (!(item is BlobItem blob)) continue;
-                    freshBlobList.Add(blob);
+                    rawBlobs.Add(blob);
                 }
             }
 
             // Sort the blobs by name (thanks to NthBlobName, this sorts them in 
             // chronological order), and with the compacted blob *after* the corresponding
             // non-compacted blob. 
-            freshBlobList.Sort((a, b) => String.Compare(a.Name, b.Name, StringComparison.Ordinal));
+            rawBlobs.Sort((a, b) => String.Compare(a.Name, b.Name, StringComparison.Ordinal));
 
-            // Find the last compacted blob, since we don't need any blobs before it.
-            for (var i = freshBlobList.Count - 1; i >= 0; --i)
+            // Find the last compacted blob, as it will be used as the data backing for 
+            // all blobs before it.
+            var last = rawBlobs.FindLastIndex(bn => bn.Name.EndsWith(CompactSuffix));
+
+            var offset = 0L;
+            for (var i = 0; i < rawBlobs.Count; ++i)
             {
-                if (freshBlobList[i].Name.EndsWith(CompactSuffix))
+                var appendBlob = rawBlobs[i];
+                if (appendBlob.Name.EndsWith(CompactSuffix)) continue;
+
+                var dataBlob = appendBlob;
+                var dataOffset = 0L;
+
+                if (i < last)
                 {
-                    freshBlobList.RemoveRange(0, i);
-                    break;
+                    dataBlob = rawBlobs[last];
+                    dataOffset = offset;
                 }
+
+                var eventBlob = new EventBlob(
+                    container,
+                    appendBlob,
+                    dataBlob,
+                    dataOffset,
+                    appendBlob.Properties.ContentLength.Value);
+
+                offset += eventBlob.Bytes;
+
+                eventBlobs.Add(eventBlob);
             }
 
-            return freshBlobList;
+            return eventBlobs;
         }
 
         /// <summary> Return a reference to the N-th event blob in the container. </summary>
@@ -170,7 +188,7 @@ namespace Lokad.AzureEventStore.Drivers
         {
             try
             {
-                await blob.CreateAsync(new AppendBlobCreateOptions());
+                await blob.CreateAsync(new AppendBlobCreateOptions(), cancel);
             }
             catch (RequestFailedException e)
             {
@@ -202,6 +220,45 @@ namespace Lokad.AzureEventStore.Drivers
                 new MemoryStream(data, 0, data.Length),
                 conditions: new AppendBlobRequestConditions { IfAppendPositionEqual = position },
                 cancellationToken: cancel);
+        }
+
+        /// <summary>
+        ///     Reads a sub-range from the specified <paramref name="blob"/> into <see cref="_buffer"/>. 
+        /// </summary>
+        /// <returns>
+        ///      Total bytes read, may be smaller than requested, but only if there were 
+        ///      not enough bytes in the blob. <paramref name="likelyLong"/> will be true
+        ///      if the caller expects the maxBytes to be reached by the read.
+        /// </returns>
+        public static async Task<int> ReadSubRangeAsync(
+            this BlobClient blob,
+            Memory<byte> buffer,
+            long start,
+            bool likelyLong,
+            CancellationToken cancel)
+        {
+            while (true)
+            {
+                try
+                {
+                    return await RetryAsync(cancel, likelyLong, async c =>
+                    {
+                        var downloaded = await blob.DownloadContentAsync(range: new HttpRange(start, buffer.Length), cancellationToken: c);
+                        var content = downloaded.Value.Content.ToMemory();
+                        content.Span.CopyTo(buffer.Span);
+                        return content.Length;
+                    });
+                }
+                catch (RequestFailedException e) when (e.Message.StartsWith("Incorrect number of bytes received."))
+                {
+                    // Due to a miscommunication between the Azure servers for Append Blob and the
+                    // .NET client library, some responses are garbled due to a race condition out
+                    // of our control. We retry straight away, as the problem is rarely present
+                    // too many times in a row.
+                    // 
+                    // See also: https://github.com/Azure/azure-storage-net/issues/366
+                }
+            }
         }
     }
 }

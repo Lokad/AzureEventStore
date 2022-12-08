@@ -139,10 +139,16 @@ namespace Lokad.AzureEventStore.Test.drivers
             // Still the same write position
             Assert.Equal(p, wp);
 
-            // The correct number of blobs (one compact, one being appended to)
+            // Still three blobs, but two are compacted.
             Assert.Equal(
-                new[] { "events.00001.compact", "events.00002" },
-                driver.Blobs.Select(b => b.Name));
+                new[] { "events.00000", "events.00001", "events.00002" },
+                driver.Blobs.Select(b => b.AppendBlob.Name));
+            Assert.Equal(
+                new[] { true, true, false },
+                driver.Blobs.Select(b => b.IsCompacted));
+            Assert.Equal(
+                new[] { "events.00001.compact", "events.00001.compact", "events.00002" },
+                driver.Blobs.Select(b => b.DataBlob.Name));
 
             // Read all the stream again, measure duration
             {
