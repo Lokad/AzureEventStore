@@ -3,6 +3,7 @@ using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -16,25 +17,27 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [DataContract]
         public class TstEvent
         {
-            public TstEvent(uint value)
+            public TstEvent(int value)
             {
                 Value = value;
             }
 
             [DataMember]
-            public uint Value { get; set; }
+            public int Value { get; set; }
         }
 
-        public record State(ImmutableArray<uint> Value);
+        public record State(ImmutableArray<int> Value);
 
         public class Projection : IProjection<TstEvent, State>
         {
             public string FullName => "Test-01";
             public Type State => typeof(State);
-            public State Initial => new State(ImmutableArray<uint>.Empty);
+            public State Initial => new State(ImmutableArray<int>.Empty);
 
             public State Apply(uint sequence, TstEvent e, State previous) =>
-                new State(previous.Value.Add(e.Value));
+                e.Value < 0 
+                    ? throw new ArgumentException("Expected positive") 
+                    : new State(previous.Value.Add(e.Value));
 
             public Task<State> TryLoadAsync(Stream source, CancellationToken cancel) =>
                 throw new NotSupportedException();
@@ -69,8 +72,85 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 return transaction.State.Value[0];
             });
 
-            Assert.Equal(15u, value.More);
-            Assert.Equal(new[] { 15u }, ew.Current.Value);
+            Assert.Equal(15, value.More);
+            Assert.Equal(new[] { 15 }, ew.Current.Value);
+        }
+
+        [Fact]
+        public async Task AppendTwo()
+        {
+            var ew = Init();
+            var value = await ew.TransactionAsync(transaction =>
+            {
+                Assert.Empty(transaction.State.Value);
+                transaction.Add(new TstEvent(15));
+                Assert.Single(transaction.State.Value);
+                transaction.Add(new TstEvent(20));
+                Assert.Equal(2, transaction.State.Value.Length);
+            });
+
+            Assert.Equal(2, value.Count);
+            Assert.Equal(new[] { 15, 20 }, ew.Current.Value);
+        }
+
+        [Fact]
+        public async Task AppendTwice()
+        {
+            var ew = Init();
+            await ew.TransactionAsync(transaction => 
+                transaction.Add(new TstEvent(10)));
+
+            var value = await ew.TransactionAsync(transaction =>
+            {
+                Assert.Single(transaction.State.Value);
+                transaction.Add(new TstEvent(15));
+                Assert.Equal(2, transaction.State.Value.Length);
+                transaction.Add(new TstEvent(20));
+                Assert.Equal(3, transaction.State.Value.Length);
+            });
+
+            Assert.Equal(2, value.Count);
+            Assert.Equal(new[] { 10, 15, 20 }, ew.Current.Value);
+        }
+
+        [Fact]
+        public async Task AppendThenThrow()
+        {
+            var ew = Init();
+            var value = await ew.TransactionAsync(transaction =>
+                transaction.Add(new TstEvent(15)));
+
+            try
+            {
+                await ew.TransactionAsync(transaction =>
+                {
+                    transaction.Add(new TstEvent(-1));
+                    Assert.True(false);
+                });
+            }
+            catch (ArgumentException e)
+            {
+                Assert.Equal("Expected positive", e.Message);
+            }
+        }
+
+        [Fact]
+        public async Task ThrowInterrupts()
+        {
+            var ew = Init();
+
+            try
+            {
+                await ew.TransactionAsync(transaction =>
+                {
+                    transaction.Add(new TstEvent(-1));
+                    Assert.True(false);
+                });
+            }
+            catch (ArgumentException e)
+            {
+                Assert.Equal("Expected positive", e.Message);
+            }
         }
 
         [Fact]
@@ -87,7 +167,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 transaction.OnCommit += e =>
                 {
                     Assert.Equal(1, e.Count);
-                    Assert.Equal(15u, e[0].Value);
+                    Assert.Equal(15, e[0].Value);
                     commitAInvoked = true;
                 };
                 transaction.Add(new TstEvent(15));

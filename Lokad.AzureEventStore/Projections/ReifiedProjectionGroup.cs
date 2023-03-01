@@ -27,7 +27,8 @@ namespace Lokad.AzureEventStore.Projections
 
         private ReifiedProjectionGroup(
             IReifiedProjection<TEvent>[] reifiedProjections,
-            Func<IReifiedProjection<TEvent>[], TState> refresh)
+            Func<IReifiedProjection<TEvent>[], TState> refresh,
+            uint sequence)
         {
             _reifiedProjections = reifiedProjections;
             _refresh = refresh;
@@ -37,6 +38,8 @@ namespace Lokad.AzureEventStore.Projections
                 return value;
             };
 
+            Sequence = sequence;
+
             InvalidateCurrent();
         }
 
@@ -44,7 +47,8 @@ namespace Lokad.AzureEventStore.Projections
         public IReifiedProjection<TEvent, TState> Clone() =>
             new ReifiedProjectionGroup<TEvent, TState>(
                 _reifiedProjections.Select(p => p.Clone()).ToArray(),
-                _refresh);
+                _refresh,
+                Sequence);
 
         /// <inheritdoc/>
         IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
