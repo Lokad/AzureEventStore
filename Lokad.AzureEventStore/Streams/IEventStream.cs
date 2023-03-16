@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Azure.Storage.Blobs;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -40,6 +41,12 @@ namespace Lokad.AzureEventStore.Streams
 
         /// <summary> Resets the stream to the beginning. </summary>
         void Reset();
+
+        /// <summary>
+        /// Default remote cache store registered in the stream configuration. 
+        /// It can be overriden by the cache strategy selected by the user.
+        /// </summary>
+        BlobContainerClient StateCache { get; }
     }
 
     /// <summary>

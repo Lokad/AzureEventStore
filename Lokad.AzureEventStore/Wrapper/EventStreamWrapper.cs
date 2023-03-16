@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.Storage.Blobs;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
@@ -29,15 +30,19 @@ namespace Lokad.AzureEventStore.Wrapper
         /// <summary> Logging status messages. </summary>
         private readonly ILogAdapter _log;
 
-        public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
-            : this(storage.Connect(), projections, projectionCache, log)
+        public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections,
+            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder, ILogAdapter log = null)
+            : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, log, blobContainerClient)
         { }
 
-        internal EventStreamWrapper(IStorageDriver storage, IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider projectionCache, ILogAdapter log = null)
+        internal EventStreamWrapper(IStorageDriver storage, IEnumerable<IProjection<TEvent>> projections,
+                                    Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+                                    ILogAdapter log = null, BlobContainerClient blobContainerClient = null)
         {
             _log = log;
-            Stream = new EventStream<TEvent>(storage, log);
-            _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCache, log);
+            Stream = new EventStream<TEvent>(storage, log, blobContainerClient);
+            _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCacheBuilder != null
+                ? projectionCacheBuilder(Stream) : null, log);
         }
 
         /// <summary> A task that will complete when the state is refreshed. </summary>

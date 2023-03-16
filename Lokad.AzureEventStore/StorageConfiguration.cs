@@ -1,8 +1,7 @@
-﻿using System;
-using System.IO;
+﻿using Azure.Storage.Blobs;
 using Lokad.AzureEventStore.Drivers;
-using Azure.Storage;
-using Azure.Storage.Blobs;
+using System;
+using System.IO;
 
 namespace Lokad.AzureEventStore
 {
@@ -11,7 +10,7 @@ namespace Lokad.AzureEventStore
     /// used. 
     /// </summary>
     public sealed class StorageConfiguration
-    {       
+    {
         /// <summary> How to connect to the stream ? </summary>
         public string ConnectionString { get; }
 
@@ -48,44 +47,44 @@ namespace Lokad.AzureEventStore
             }
         }
 
+        /// <summary>
+        /// Only use for local storage, path where are stocked the events.
+        /// </summary>
+        internal string FilePath
+        {
+            get
+            {
+                if (!IsAzureStorage)
+                    throw new InvalidOperationException("Connection string redirects towards an Azure blob.");
+
+                (var connectionString, var containerName) = ParseConnectionString(ConnectionString);
+                return string.IsNullOrWhiteSpace(containerName) ? connectionString : Path.Combine(connectionString, containerName);
+            }
+        }
+
         internal IStorageDriver Connect()
         {
+            return Connect(out _);
+        }
+
+        internal IStorageDriver Connect(out BlobContainerClient stateCache)
+        {
+            stateCache = null;
             if (_storageDriver != null) return _storageDriver;
-            
+
             // If _storageDriver is null, then ConnectionString is not.
 
             IStorageDriver driver;
-
-            var cname = "";
-            var cs = ConnectionString;
-
-            var containerI = cs.IndexOf(";Container=", StringComparison.OrdinalIgnoreCase);
-            if (containerI >= 0)
-            {
-                cname = cs.Substring(containerI + ";Container=".Length);
-                cs = cs.Substring(0, containerI);
-            }
-
             if (IsAzureStorage)
             {
-                var account = new BlobServiceClient(cs);
-                // HINT: Root container name must be "$root".
-                // docs: https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blob-container-create#create-the-root-container
-                var container = string.IsNullOrWhiteSpace(cname)
-                    ? account.GetBlobContainerClient("$root")
-                    : account.GetBlobContainerClient(cname);
-
-                if (account.CanGenerateAccountSasUri)
-                    container.CreateIfNotExistsAsync().Wait();
-
+                var container = GetBlobContainerClient();
+                var config = EventStreamConfig.GetEventStreamConfigFromAzureBlob(container);
+                stateCache = config != null ? GetBlobContainerClient(ConnectionString, config.StateCache) : null;
                 driver = new AzureStorageDriver(container);
             }
             else
-            {
-                string filePath = string.IsNullOrWhiteSpace(cname) ? cs : Path.Combine(cs, cname);
-                driver = new FileStorageDriver(filePath);
-            }
-            
+                driver = new FileStorageDriver(FilePath);
+
             if (Trace)
                 driver = new StatsDriverWrapper(driver);
 
@@ -96,6 +95,33 @@ namespace Lokad.AzureEventStore
                 driver = new CacheStorageDriver(driver, CachePath);
 
             return driver;
+        }
+
+        public BlobContainerClient GetBlobContainerClient()
+        {
+            (var connectionString, var containerName) = ParseConnectionString(ConnectionString);
+            return GetBlobContainerClient(connectionString, containerName);
+        }
+
+        private static BlobContainerClient GetBlobContainerClient(string connectionString, string name)
+        {
+            var account = new BlobServiceClient(connectionString);
+            // HINT: Root container name must be "$root".
+            // docs: https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blob-container-create#create-the-root-container
+            var container = string.IsNullOrWhiteSpace(name)
+                ? account.GetBlobContainerClient("$root")
+                : account.GetBlobContainerClient(name);
+            if (account.CanGenerateAccountSasUri)
+                container.CreateIfNotExistsAsync().Wait();
+            return container;
+        }
+
+        private static (string connectionString, string containerName) ParseConnectionString(string connectionString)
+        {
+            var start = connectionString.IndexOf(";Container=", StringComparison.OrdinalIgnoreCase);
+            return start >= 0
+                ? (connectionString.Substring(0, start), connectionString.Substring(start + ";Container=".Length))
+                : (connectionString, "");
         }
     }
 }

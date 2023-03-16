@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
+using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Util;
 using Lokad.AzureEventStore.Wrapper;
 
@@ -75,8 +76,27 @@ namespace Lokad.AzureEventStore
             CancellationToken cancel)
         =>
             new EventStreamService<TEvent, TState>(
-                storage, projections, projectionCache, log, cancel);
-        
+                storage, projections, (EventStream<TEvent> _) => projectionCache, log, cancel);
+
+        /// <summary> Initialize and start the service. </summary>
+        /// <remarks> 
+        /// This will start a background task that performs all processing
+        /// and regularly updates the contents.
+        /// </remarks>
+        /// <param name="storage"> Identifies where the event stream data is stored. </param>
+        /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
+        /// <param name="projectionCacheBuilder"> Callback function which builds the cache, called after the the download of the json settings file from Azure. </param>
+        /// <param name="log"> Used for logging. </param>
+        /// <param name="cancel"> Stops the background tasks when called. </param>
+        public static EventStreamService<TEvent, TState> StartNew(
+            StorageConfiguration storage,
+            IEnumerable<IProjection<TEvent>> projections,
+            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+            ILogAdapter log,
+            CancellationToken cancel)
+        =>
+            new EventStreamService<TEvent, TState>(storage, projections, projectionCacheBuilder, log, cancel);
+
         /// <remarks>
         ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
         ///     that background tasks are being creatd.
@@ -84,13 +104,13 @@ namespace Lokad.AzureEventStore
         private EventStreamService(
             StorageConfiguration storage,
             IEnumerable<IProjection<TEvent>> projections,
-            IProjectionCacheProvider projectionCache,
+            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
             ILogAdapter log,
             CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
         {
             _log = log;
             _cancel = cancel;
-            Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCache, log);
+            Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, log);
             Quarantine = Wrapper.Quarantine;
 
             Ready = Task.Run(Initialize, cancel);

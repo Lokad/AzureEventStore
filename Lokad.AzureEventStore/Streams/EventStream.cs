@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.Storage.Blobs;
 using Lokad.AzureEventStore.Drivers;
 
 namespace Lokad.AzureEventStore.Streams
@@ -38,17 +39,24 @@ namespace Lokad.AzureEventStore.Streams
 
         /// <summary> Used for logging. </summary>
         private readonly ILogAdapter _log;
-        
+
+        /// <summary>
+        /// Default remote cache store registered in the stream configuration. 
+        /// It can be overriden by the cache strategy selected by the user.
+        /// </summary>
+        private readonly BlobContainerClient _stateCache;
+
         /// <summary> Open an event stream, connecting to the specified store. </summary>
-        public EventStream(StorageConfiguration storage, ILogAdapter log = null) : this(storage.Connect(), log)
+        public EventStream(StorageConfiguration storage, ILogAdapter log = null) : this(storage.Connect(out var stateCache), log, stateCache)
         {
         }
 
         /// <summary> Open an event stream on the provided store. </summary>
-        internal EventStream(IStorageDriver storage, ILogAdapter log = null)
+        internal EventStream(IStorageDriver storage, ILogAdapter log = null, BlobContainerClient stateCache = null)
         {
             Storage = storage;
             _log = log;
+            _stateCache = stateCache;
         }
 
         /// <summary> The position up to which *remote* reading has progressed so far. </summary>
@@ -229,6 +237,9 @@ namespace Lokad.AzureEventStore.Streams
             
             // Do NOT reset ! The value is still correct.
             // _minimumWritePosition = 0;
-        }        
+        }
+
+        /// <summary> <see cref="IEventStream.StateCache"/> </summary>
+        public BlobContainerClient StateCache => _stateCache;
     }
 }

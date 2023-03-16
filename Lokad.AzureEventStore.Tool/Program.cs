@@ -25,7 +25,8 @@ namespace Lokad.AzureEventStore.Tool
             { "fetch", CmdFetch },
             { "drop", CmdDrop },
             { "safe", CmdSafe },
-            { "peek", CmdPeek }
+            { "peek", CmdPeek },
+            { "create-config-file", CmdCreateConfigFile }
         };
 
         static void Main()
@@ -599,6 +600,18 @@ namespace Lokad.AzureEventStore.Tool
             for (var i = 0; i < count && i < stream.Count; ++i)
             {
                 Show(stream[stream.Count - i - 1]);
+            }
+        }
+
+        private static void CmdCreateConfigFile(string[] args)
+        {
+            if (args.Length != 2)
+                Console.WriteLine($"Usage: create-config-file <connection-string> <state-cache>");
+            else
+            {
+                var storageConfiguration = new StorageConfiguration(args[0]);
+                var eventStreamConfig = new EventStreamConfig(args[1]);
+                Task.Run(async () => { await eventStreamConfig.CreateConfigBlob(storageConfiguration); }).Wait();
             }
         }
 
