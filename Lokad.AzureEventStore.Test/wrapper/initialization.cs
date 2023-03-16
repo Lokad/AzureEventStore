@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.Storage.Blobs;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Test.streams;
@@ -63,6 +64,9 @@ namespace Lokad.AzureEventStore.Test.wrapper
             }
 
             public uint Sequence { get; private set; }
+
+            public BlobContainerClient StateCache => throw new NotImplementedException();
+
             public void Reset()
             {
                 NbResets++;

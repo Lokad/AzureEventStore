@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
+using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Wrapper;
 using Xunit;
 
@@ -123,7 +124,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var ew = new EventStreamWrapper<TstEvent, CheckSequence>(
                 memory,
                 new []{new CheckSequence.Projection()},
-                cache
+                (EventStream<TstEvent> _) => cache
             );
             await ew.AppendEventsAsync(new[] { new TstEvent(1) });
             await ew.AppendEventsAsync(new[] { new TstEvent(2) });
@@ -137,7 +138,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             // try to read: 
             var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
                 memory, new[] {new CheckSequence.Projection()},
-                cache);
+                (EventStream<TstEvent> _) => cache);
 
             await ew2.InitializeAsync();
             Assert.Equal(5u, ew2.Current.LastEvt);
