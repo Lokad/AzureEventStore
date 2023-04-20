@@ -38,7 +38,7 @@ namespace Lokad.AzureEventStore.Projections
     public interface IProjection<in TEvent,TState> : IProjection<TEvent>
     {
         /// <summary> The state before any events are applied to it. </summary>
-        TState Initial { get; }
+        TState Initial(StateCreationContext stateCreationContext);
 
         /// <summary>
         /// Applies the specified event (with the provided sequence number) to

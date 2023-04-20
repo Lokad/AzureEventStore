@@ -8,7 +8,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Streams;
-using Azure.Storage.Blobs;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -66,7 +65,7 @@ namespace Lokad.AzureEventStore.Projections
         public void Reset()
         {
             Sequence = 0U;
-            Current = _projection.Initial;
+            Current = _projection.Initial(new StateCreationContext());
             _possiblyInconsistent = false;
 
             if (Current == null)
