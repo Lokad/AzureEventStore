@@ -32,7 +32,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             public string FullName => "Test-01";
             public Type State => typeof(State);
-            public State Initial => new State(ImmutableArray<int>.Empty);
+            public State Initial(StateCreationContext stateCreationContext) => new State(ImmutableArray<int>.Empty);
 
             public State Apply(uint sequence, TstEvent e, State previous) =>
                 e.Value < 0 

@@ -47,7 +47,7 @@ namespace Lokad.AzureEventStore.Test.projections
         {
             var mock = new Mock<IProjection<int, Integer>>();
             mock.Setup(p => p.FullName).Returns("integer");
-            mock.Setup(p => p.Initial).Returns(new Integer(0));
+            mock.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns(new Integer(0));
             mock.Setup(p => p.State).Returns(typeof (Integer));
             mock.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<Integer>()))
                 .Returns<uint, int, Integer>((s, i, state) => new Integer(state.Value + i));
@@ -59,7 +59,7 @@ namespace Lokad.AzureEventStore.Test.projections
         {
             var mock = new Mock<IProjection<int, string>>();
             mock.Setup(p => p.FullName).Returns("string");
-            mock.Setup(p => p.Initial).Returns("I");
+            mock.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             mock.Setup(p => p.State).Returns(typeof (string));
             mock.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
@@ -205,7 +205,7 @@ namespace Lokad.AzureEventStore.Test.projections
         public override void apply_event_fails()
         {
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
@@ -226,7 +226,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns(Name);
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))

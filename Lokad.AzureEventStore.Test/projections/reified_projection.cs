@@ -23,7 +23,7 @@ namespace Lokad.AzureEventStore.Test.projections
         public void initial()
         {
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("initial");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("initial");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof (string));
 
@@ -39,7 +39,7 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 var projection = new Mock<IProjection<int, string>>();
-                projection.Setup(p => p.Initial).Returns("initial");
+                projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("initial");
                 projection.Setup(p => p.FullName).Returns((string)null);
                 projection.Setup(p => p.State).Returns(typeof(string));
 
@@ -57,7 +57,7 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 var projection = new Mock<IProjection<int, string>>();
-                projection.Setup(p => p.Initial).Returns("initial");
+                projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("initial");
                 projection.Setup(p => p.FullName).Returns("2/3");
                 projection.Setup(p => p.State).Returns(typeof(string));
 
@@ -76,7 +76,7 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 var projection = new Mock<IProjection<int, string>>();
-                projection.Setup(p => p.Initial).Returns((string)null);
+                projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns((string)null);
                 projection.Setup(p => p.FullName).Returns("test");
                 projection.Setup(p => p.State).Returns(typeof(string));
 
@@ -97,7 +97,7 @@ namespace Lokad.AzureEventStore.Test.projections
         public void apply_event()
         {
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
@@ -118,7 +118,7 @@ namespace Lokad.AzureEventStore.Test.projections
         public void apply_event_skip()
         {
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
@@ -137,7 +137,7 @@ namespace Lokad.AzureEventStore.Test.projections
         public virtual void apply_event_fails()
         {
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
@@ -165,7 +165,7 @@ namespace Lokad.AzureEventStore.Test.projections
             try
             {
                 var projection = new Mock<IProjection<int, string>>();
-                projection.Setup(p => p.Initial).Returns("I");
+                projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
                 projection.Setup(p => p.FullName).Returns("test");
                 projection.Setup(p => p.State).Returns(typeof(string));
                 projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
@@ -198,7 +198,7 @@ namespace Lokad.AzureEventStore.Test.projections
             } } };
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
@@ -229,7 +229,7 @@ namespace Lokad.AzureEventStore.Test.projections
             } } };
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
@@ -253,7 +253,7 @@ namespace Lokad.AzureEventStore.Test.projections
             } } };
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
@@ -281,7 +281,7 @@ namespace Lokad.AzureEventStore.Test.projections
             };
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("I");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
             projection.Setup(p => p.FullName).Returns("other");
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
@@ -304,7 +304,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -333,7 +333,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -362,7 +362,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -391,7 +391,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -412,7 +412,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -443,7 +443,7 @@ namespace Lokad.AzureEventStore.Test.projections
             var cache = new Testing.InMemoryCache();
 
             var projection = new Mock<IProjection<int, string>>();
-            projection.Setup(p => p.Initial).Returns("0");
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("0");
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof(string));
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))

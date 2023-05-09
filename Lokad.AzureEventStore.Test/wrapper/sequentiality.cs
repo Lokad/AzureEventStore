@@ -67,7 +67,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             public string FullName => "CheckSeqProj-01";
             public Type State => typeof(CheckSequence);
-            public CheckSequence Initial => new CheckSequence();
+            public CheckSequence Initial(StateCreationContext stateCreationContext) => new CheckSequence();
 
             public CheckSequence Apply(uint sequence, TstEvent e, CheckSequence previous)
             {

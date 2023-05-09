@@ -10,12 +10,13 @@ using System.Collections.Generic;
 using Lokad.AzureEventStore.Cache;
 using MessagePack;
 using System.Text.RegularExpressions;
+using Lokad.AzureEventStore;
 
 namespace ExampleProject
 {
     public sealed class Projection : IProjection<IEvent, State>
     {
-        public State Initial => new State(
+        public State Initial(StateCreationContext stateCreationContext) => new State(
             ImmutableDictionary<string, int>.Empty,
             LargeImmutableList<ImmutableList<int>>.Empty(State.MessagePackOptions),
             LargeImmutableList<State.Document>.Empty(State.MessagePackOptions));

@@ -52,7 +52,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 // Save is not supported.
                 return Task.FromResult(true);
             }
-            public VState Initial => new VState(0);
+            public VState Initial(StateCreationContext stateCreationContext) => new VState(0);
             public string FullName => "CheckValProj-01";
         }
 

@@ -15,7 +15,7 @@
   <!-- When working locally, comment out this block and uncomment the one below. -->
 
   <ItemGroup>
-    <PackageReference Include="Lokad.AzureEventStore" Version="8.1.1" />
+    <PackageReference Include="Lokad.AzureEventStore" Version="9.0.0" />
   </ItemGroup>
 
   
