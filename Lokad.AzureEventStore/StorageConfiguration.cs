@@ -54,7 +54,7 @@ namespace Lokad.AzureEventStore
         {
             get
             {
-                if (!IsAzureStorage)
+                if (IsAzureStorage)
                     throw new InvalidOperationException("Connection string redirects towards an Azure blob.");
 
                 (var connectionString, var containerName) = ParseConnectionString(ConnectionString);
