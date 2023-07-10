@@ -30,19 +30,36 @@ namespace Lokad.AzureEventStore.Wrapper
         /// <summary> Logging status messages. </summary>
         private readonly ILogAdapter _log;
 
-        public EventStreamWrapper(StorageConfiguration storage, IEnumerable<IProjection<TEvent>> projections,
-            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder, ILogAdapter log = null)
-            : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, log, blobContainerClient)
+        /// <summary> Task to track if the previous commit was completed and if a new one is needed. </summary>
+        private Task _commitTask;
+
+        public EventStreamWrapper(
+            StorageConfiguration storage, 
+            IEnumerable<IProjection<TEvent>> projections,
+            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+            StorageProvider storageProvider,
+            ILogAdapter log = null)
+            : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, storageProvider, log, blobContainerClient)
         { }
 
-        internal EventStreamWrapper(IStorageDriver storage, IEnumerable<IProjection<TEvent>> projections,
-                                    Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-                                    ILogAdapter log = null, BlobContainerClient blobContainerClient = null)
+        internal EventStreamWrapper(
+            IStorageDriver storage, 
+            IEnumerable<IProjection<TEvent>> projections,
+            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+            StorageProvider storageProvider,
+            ILogAdapter log = null,
+            BlobContainerClient blobContainerClient = null)
         {
             _log = log;
             Stream = new EventStream<TEvent>(storage, log, blobContainerClient);
-            _projection = new ReifiedProjectionGroup<TEvent, TState>(projections, projectionCacheBuilder != null
-                ? projectionCacheBuilder(Stream) : null, log);
+            _projection = new ReifiedProjectionGroup<TEvent, TState>(
+                projections,
+                storageProvider,
+                projectionCacheBuilder != null
+                    ? projectionCacheBuilder(Stream) 
+                    : null, 
+                log);
+            _commitTask = Task.CompletedTask;
         }
 
         /// <summary> A task that will complete when the state is refreshed. </summary>
@@ -143,7 +160,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 // Load project and discard events before that.
                 log?.Info("[ES init] loading projections.");
 
-                await projection.TryLoadAsync(cancel).ConfigureAwait(false);
+                await projection.CreateAsync(cancel).ConfigureAwait(false);
 
                 var catchUp = projection.Sequence + 1;
 
@@ -179,7 +196,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// <returns>
         ///     The number of events that have been passed to the projection.
         /// </returns>
-        private uint CatchUpLocal()
+        private uint CatchUpLocal(CancellationToken cancel)
         {
             var caughtUpWithProjection = false;
             var eventsPassedToProjection = 0u;
@@ -220,6 +237,7 @@ namespace Lokad.AzureEventStore.Wrapper
                         // This might throw due to event processing issues
                         //  by one or more projection components
                         _projection.Apply(seq, nextEvent);
+                        Commit(seq, cancel);
                     }
                     catch (Exception ex)
                     {
@@ -231,6 +249,15 @@ namespace Lokad.AzureEventStore.Wrapper
             }
 
             return eventsPassedToProjection;
+        }
+
+        /// <summary>
+        /// If the previous commit is finished, fire a new one.
+        /// </summary>
+        public void Commit(uint seq, CancellationToken cancel = default)
+        {
+            if (_commitTask.IsCompleted) 
+                _commitTask = _projection.CommitAsync(seq, cancel);
         }
 
         /// <summary>
@@ -254,7 +281,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 // when fetching events takes longer than processing them,
                 // and remains safe (i.e. no runaway memory usage) when 
                 // the reverse is true.
-                eventsSinceLastCacheLoad += CatchUpLocal();
+                eventsSinceLastCacheLoad += CatchUpLocal(cancel);
 
                 // Maybe we have reached the event count limit before our 
                 // save/load cycle ?
@@ -326,7 +353,7 @@ namespace Lokad.AzureEventStore.Wrapper
                     {
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
-                        CatchUpLocal();
+                        CatchUpLocal(cancel);
                         NotifyRefresh();
                         return new AppendResult<T>(tuple.Events.Count, (uint)done, tuple.Result);
                     }
@@ -401,7 +428,7 @@ namespace Lokad.AzureEventStore.Wrapper
                     {
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
-                        CatchUpLocal();
+                        CatchUpLocal(cancel);
                         NotifyRefresh();
                         transaction.HandleCommit();
                         return new AppendResult<T>(events.Length, (uint)done, result);
@@ -479,7 +506,7 @@ namespace Lokad.AzureEventStore.Wrapper
                     {
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
-                        CatchUpLocal();
+                        CatchUpLocal(cancel);
                         NotifyRefresh();
                         transaction.HandleCommit();
                         return new AppendResult(events.Length, (uint)done);

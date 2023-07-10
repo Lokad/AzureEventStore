@@ -1,14 +1,17 @@
-﻿namespace Lokad.AzureEventStore
+﻿#nullable enable
+namespace Lokad.AzureEventStore
 {
     /// <summary>
     /// Settings used to create the state."/>
-    /// Not used for now.
     /// </summary>
     public class StateCreationContext
     {
-        public StateCreationContext()
-        {
+        /// <summary> External state folder path. </summary>
+        public string? ExternalStateFolderPath { get; set; }
 
+        public StateCreationContext(string? externalStateFolderPath)
+        {
+            ExternalStateFolderPath = externalStateFolderPath;
         }
     }
 }

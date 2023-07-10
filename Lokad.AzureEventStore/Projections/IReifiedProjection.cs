@@ -25,7 +25,12 @@ namespace Lokad.AzureEventStore.Projections
         /// current state and <see cref="Sequence"/>.
         /// </summary>
         /// <remarks> Projection is unchanged if loading fails. </remarks>
-        Task TryLoadAsync(CancellationToken cancel = default);
+        Task<bool> TryLoadAsync(CancellationToken cancel = default);
+
+        /// <summary>
+        /// Called to initialize the projection state.
+        /// </summary>
+        Task CreateAsync(CancellationToken cancel = default);
 
         /// <summary>
         /// Notify the projection that the state may be inconsistent, due to 
@@ -41,6 +46,14 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> The name of the underlying projection. </summary>
         string Name { get; }
+
+        /// <summary> 
+        /// Marks ‘state’ as being the latest in the sequence of states produced by applying events persisted in the stream 
+        /// (as opposed to tentative state instances that are produced by applying tentative events that will not be persisted). 
+        /// This gives the projection the liberty to perform any operations related to the persistence of the state, 
+        /// such as flushing parts of it to an external state that may be loaded later.
+        /// </summary>
+        Task CommitAsync(uint sequence, CancellationToken cancel = default);
     }
 
     /// <summary>

@@ -35,7 +35,14 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> For logging. </summary>
         private readonly ILogAdapter _log;
 
-        public ReifiedProjection(IProjection<TEvent, TState> projection, IProjectionCacheProvider cacheProvider = null, ILogAdapter log = null)
+        /// <summary> Settings used to create the state. </summary>
+        private readonly StateCreationContext _stateCreationContext;
+
+        public ReifiedProjection(
+            IProjection<TEvent, TState> projection, 
+            StorageProvider storageProvider, 
+            IProjectionCacheProvider cacheProvider = null, 
+            ILogAdapter log = null)
         {
             if (projection == null)
                 throw new ArgumentNullException(nameof(projection));
@@ -57,15 +64,38 @@ namespace Lokad.AzureEventStore.Projections
             _log = log;
 
             _log?.Debug("Using projection: " + Name);
+            _stateCreationContext = storageProvider.GetStateCreationContext(Name);
+             _possiblyInconsistent = false;
+             Sequence = 0U;
+        }
 
-            Reset();            
+        /// <summary>
+        /// Called to initialize the projection state.
+        /// Attempt to load an external state by calling 
+        /// <see cref="IProjection{TEvent, TState}.TryRestoreAsync(StateCreationContext, CancellationToken)"/>.
+        /// If no state was restored, then try to load one 
+        /// from a cache provider by calling <see cref="IProjection{TEvent, TState}.TryLoadAsync(Stream, CancellationToken)"/>.
+        /// If no state was restored, initialize with the initial state.
+        /// </summary>
+        public async Task CreateAsync(CancellationToken cancel = default)
+        {
+            var restoredState = await _projection.TryRestoreAsync(_stateCreationContext, cancel);
+            if (restoredState != null)
+            {
+                Sequence = restoredState.Sequence;
+                Current = restoredState.State;
+                return;
+            }
+
+            if (!(await TryLoadAsync(cancel)))
+                Reset();
         }
 
         /// <summary> Reset the projection to its initial state and sequence number <c>0</c>. </summary>
         public void Reset()
         {
             Sequence = 0U;
-            Current = _projection.Initial(new StateCreationContext());
+            Current = _projection.Initial(_stateCreationContext);
             _possiblyInconsistent = false;
 
             if (Current == null)
@@ -142,12 +172,15 @@ namespace Lokad.AzureEventStore.Projections
         /// Obviously, as this object does not support multi-threaded access,
         /// it should NOT be accessed in any way before the task has completed.
         /// </remarks>
-        public async Task TryLoadAsync(CancellationToken cancel = default)
+        /// <returns> 
+        /// True if loading was successful, false if it failed.
+        /// </returns>
+        public async Task<bool> TryLoadAsync(CancellationToken cancel = default)
         {
             if (_cacheProvider == null)
             {
                 _log?.Warning($"[{Name}] no read cache provider !");
-                return;
+                return false;
             }
 
             var sw = Stopwatch.StartNew();
@@ -160,7 +193,7 @@ namespace Lokad.AzureEventStore.Projections
             catch (Exception ex)
             {
                 _log?.Warning($"[{Name}] error when opening cache.", ex);
-                return;
+                return false;
             }
 
             foreach (var candidateTask in candidates)
@@ -218,7 +251,7 @@ namespace Lokad.AzureEventStore.Projections
 
                     Current = state;
                     Sequence = seq;
-                    return;
+                    return true;
 
                     // Do NOT set _possiblyInconsistent to false here ! 
                     // Inconsistency can have external causes, e.g. event read
@@ -239,6 +272,7 @@ namespace Lokad.AzureEventStore.Projections
                     stream.Dispose();
                 }
             }
+            return false;
         }
 
         /// <summary> Attempt to save this projection to the destination stream. </summary>
@@ -297,7 +331,7 @@ namespace Lokad.AzureEventStore.Projections
                             wrote = destination.Position;
                         }
                     }
-                    catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") { }
+                    catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") { throw; }
                     catch (Exception e)
                     {
                         _log?.Warning($"[{Name}] while saving to cache.", e);
@@ -343,6 +377,7 @@ namespace Lokad.AzureEventStore.Projections
             Name = clone.Name;
             _log = clone._log;
             _possiblyInconsistent = clone._possiblyInconsistent;
+            _stateCreationContext = clone._stateCreationContext;
         }
 
         /// <inheritdoc/>
@@ -352,5 +387,17 @@ namespace Lokad.AzureEventStore.Projections
         /// <inheritdoc/>
         IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() =>
             new ReifiedProjection<TEvent, TState>(this);
+
+
+        /// <summary>
+        /// Marks ‘state’ as being the latest in the sequence of states produced by applying events persisted in the stream 
+        /// (as opposed to tentative state instances that are produced by applying tentative events that will not be persisted). 
+        /// This gives the projection the liberty to perform any operations related to the persistence of the state, 
+        /// such as flushing parts of it to a memory-mapped file.
+        /// </summary>
+        public async Task CommitAsync(uint sequence, CancellationToken cancel = default)
+        {
+            await _projection.CommitAsync(Current, sequence, cancel);
+        }
     }
 }

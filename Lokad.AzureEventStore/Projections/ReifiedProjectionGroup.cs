@@ -25,11 +25,16 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Cached state, computed lazily. </summary>        
         private Lazy<TState> _current;
 
+        /// <summary> Handles external storage for state writing. </summary>
+        private readonly StorageProvider _storageProvider;
+
         private ReifiedProjectionGroup(
             IReifiedProjection<TEvent>[] reifiedProjections,
             Func<IReifiedProjection<TEvent>[], TState> refresh,
-            uint sequence)
+            uint sequence,
+            StorageProvider storageProvider)
         {
+            _storageProvider = storageProvider;
             _reifiedProjections = reifiedProjections;
             _refresh = refresh;
             _refreshClosure = () =>
@@ -48,7 +53,8 @@ namespace Lokad.AzureEventStore.Projections
             new ReifiedProjectionGroup<TEvent, TState>(
                 _reifiedProjections.Select(p => p.Clone()).ToArray(),
                 _refresh,
-                Sequence);
+                Sequence,
+                _storageProvider);
 
         /// <inheritdoc/>
         IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
@@ -56,8 +62,13 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary>
         /// Reifies a group of projections as a <typeparamref name="TState"/> object.
         /// </summary>
-        public ReifiedProjectionGroup(IEnumerable<IProjection<TEvent>> projections, IProjectionCacheProvider cacheProvider = null, ILogAdapter log = null)
+        public ReifiedProjectionGroup(
+            IEnumerable<IProjection<TEvent>> projections,
+            StorageProvider storageProvider, 
+            IProjectionCacheProvider cacheProvider = null, 
+            ILogAdapter log = null)
         {
+            _storageProvider = storageProvider;
             // Dirty reflection work to reify the individual projections and store their
             // type parameter.
             var reifiedByType = new Dictionary<Type, IReifiedProjection<TEvent>>();
@@ -77,7 +88,7 @@ namespace Lokad.AzureEventStore.Projections
 
                 var constructor = reifiedProjectionType
                     .GetTypeInfo()
-                    .GetConstructor(new []{ projectionType, typeof(IProjectionCacheProvider), typeof(ILogAdapter) });
+                    .GetConstructor(new []{ projectionType, typeof(StorageProvider), typeof(IProjectionCacheProvider), typeof(ILogAdapter) });
 
                 if (constructor == null)
                     throw new Exception("No constructor found for '" + reifiedProjectionType + "'");
@@ -86,7 +97,7 @@ namespace Lokad.AzureEventStore.Projections
 
                 try
                 {
-                    reified = (IReifiedProjection<TEvent>) constructor.Invoke(new object[] {p, cacheProvider, log});
+                    reified = (IReifiedProjection<TEvent>) constructor.Invoke(new object[] {p, storageProvider, cacheProvider, log});
                 }
                 catch (TargetInvocationException e)
                 {
@@ -173,10 +184,11 @@ namespace Lokad.AzureEventStore.Projections
             return all.All(b => b);
         }
 
-        public async Task TryLoadAsync(CancellationToken cancel = default(CancellationToken))
+        public async Task<bool> TryLoadAsync(CancellationToken cancel = default(CancellationToken))
         {
-            await Task.WhenAll(_reifiedProjections.Select(p => p.TryLoadAsync(cancel)));
+            var all = await Task.WhenAll(_reifiedProjections.Select(p => p.TryLoadAsync(cancel)));
             Sequence = _reifiedProjections.Min(p => p.Sequence);
+            return all.All(b => b);
         }
 
         public void SetPossiblyInconsistent()
@@ -238,6 +250,20 @@ namespace Lokad.AzureEventStore.Projections
         private void InvalidateCurrent()
         {
             _current = new Lazy<TState>(_refreshClosure, LazyThreadSafetyMode.PublicationOnly);
+        }
+
+        /// <summary>
+        /// Commit additional changes after applying events to the state.
+        /// </summary>
+        public async Task CommitAsync(uint sequence, CancellationToken cancel = default)
+        {
+            await Task.WhenAll(_reifiedProjections.Select(p => p.CommitAsync(sequence, cancel)));
+        }
+
+        public async Task CreateAsync(CancellationToken cancel = default)
+        {
+            await Task.WhenAll(_reifiedProjections.Select(p => p.CreateAsync(cancel)));
+            Sequence = _reifiedProjections.Min(p => p.Sequence);
         }
 
         /// <summary> Construct the state from the sub-projections. </summary>
