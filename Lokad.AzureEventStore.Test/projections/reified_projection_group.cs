@@ -34,9 +34,9 @@ namespace Lokad.AzureEventStore.Test.projections
     {
         #region Parent class tests
 
-        internal override IReifiedProjection<int, string> Make(IProjection<int, string> projection, IProjectionCacheProvider cache = null)
+        internal override IReifiedProjection<int, string> Make(IProjection<int, string> projection, StorageProvider storageProvider, IProjectionCacheProvider cache = null)
         {
-            return new ReifiedProjectionGroup<int, string>(new[] {projection}, cache);
+            return new ReifiedProjectionGroup<int, string>(new[] {projection}, storageProvider, cache);
         }
 
         #endregion
@@ -71,13 +71,14 @@ namespace Lokad.AzureEventStore.Test.projections
         #endregion
 
         [Fact]
-        public void multi_initial()
+        public async Task multi_initial()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
                 MockString().Object
-            });
+            }, new StorageProvider(null));
+            await reified.CreateAsync();
 
             Assert.Equal(0U, reified.Sequence);
             Assert.Equal(0, reified.Current.I.Value);
@@ -86,14 +87,14 @@ namespace Lokad.AzureEventStore.Test.projections
 
 
         [Fact]
-        public void multi_apply()
+        public async Task multi_apply()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
                 MockString().Object
-            });
-
+            }, new StorageProvider(null));
+            await reified.CreateAsync();
             reified.Apply(1U, 10);
 
             Assert.Equal(1U, reified.Sequence);
@@ -102,14 +103,14 @@ namespace Lokad.AzureEventStore.Test.projections
         }
 
         [Fact]
-        public void multi_apply_reset()
+        public async Task multi_apply_reset()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
                 MockString().Object
-            });
-
+            }, new StorageProvider(null));
+            await reified.CreateAsync();
             reified.Apply(1U, 10);
 
             Assert.NotNull(reified.Current); 
@@ -123,14 +124,14 @@ namespace Lokad.AzureEventStore.Test.projections
 
 
         [Fact]
-        public void multi_apply_double()
+        public async Task multi_apply_double()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
                 MockString().Object
-            });
-
+            }, new StorageProvider(null));
+            await reified.CreateAsync();
             try
             {
                 reified.Apply(1U, 10);
@@ -144,14 +145,14 @@ namespace Lokad.AzureEventStore.Test.projections
         }
 
         [Fact]
-        public void multi_apply_twice()
+        public async Task multi_apply_twice()
         {
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
                 MockString().Object
-            });
-
+            }, new StorageProvider(null));
+            await reified.CreateAsync();
             var oldcount = State.Creations;
 
             reified.Apply(1U, 10);
@@ -189,9 +190,9 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 str.Object
-            }, cache);
+            }, new StorageProvider(null), cache);
 
-            await reified.TryLoadAsync(CancellationToken.None);
+            await reified.CreateAsync(CancellationToken.None);
 
             reified.Apply(1U, 10);
             reified.Apply(4U, 14);
@@ -202,7 +203,7 @@ namespace Lokad.AzureEventStore.Test.projections
         }
 
         [Fact]
-        public override void apply_event_fails()
+        public override async Task apply_event_fails()
         {
             var projection = new Mock<IProjection<int, string>>();
             projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
@@ -211,8 +212,8 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object);
-
+            var reified = Make(projection.Object, new StorageProvider(null));
+            await reified.CreateAsync();
             try { reified.Apply(1U, 13); } catch { }
 
             Assert.Equal("I", reified.Current);
@@ -235,7 +236,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, cache);
+            var reified = Make(projection.Object, new StorageProvider(null), cache);
 
             try { reified.Apply(1U, 13); } catch { } // Sets 'inconsistent'
 

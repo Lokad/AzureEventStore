@@ -53,6 +53,17 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 return Task.FromResult(true);
             }
             public VState Initial(StateCreationContext stateCreationContext) => new VState(0);
+
+            public Task<RestoredState<VState>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
+            {
+                return Task.FromResult<RestoredState<VState>>(null);
+            }
+
+            public Task CommitAsync(VState state, uint sequence, CancellationToken cancel = default)
+            {
+                return Task.CompletedTask;
+            }
+
             public string FullName => "CheckValProj-01";
         }
 
@@ -71,9 +82,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var memory = new MemoryStorageDriver();
             var ew = new EventStreamWrapper<VEvent, VState>(
                 memory,
-                new[] { new Projection() }, null, new TestLog()
-            );
-            
+                new[] { new Projection() }, 
+                null, 
+                new StorageProvider(null),
+                new TestLog());
+            await ew.InitializeAsync();
             await ew.AppendEventsAsync(new[] { 
                 new VEvent(true), 
                 new VEvent(true), 
@@ -90,8 +103,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var memory = new MemoryStorageDriver();
             var ew = new EventStreamWrapper<VEvent, VState>(
                 memory,
-                new[] { new Projection() }, null, new TestLog()
-            );
+                new[] { new Projection() }, 
+                null, 
+                new StorageProvider(null),
+                new TestLog());
+            await ew.InitializeAsync();
             try
             {
                 await ew.AppendEventsAsync(new[] {
@@ -119,8 +135,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var memory = new MemoryStorageDriver();
             var ew = new EventStreamWrapper<VEvent, VState>(
                 memory,
-                new[] { new Projection() }, null, new TestLog()
-            );
+                new[] { new Projection() }, 
+                null, 
+                new StorageProvider(null),
+                new TestLog());
+            await ew.InitializeAsync();
             try
             {
                 await ew.TransactionAsync(transaction => 
@@ -149,9 +168,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var memory = new MemoryStorageDriver();
             var ew = new EventStreamWrapper<VEvent, VState>(
                 memory,
-                new[] { new Projection() }, null, new TestLog()
-            );
-
+                new[] { new Projection() }, 
+                null, 
+                new StorageProvider(null),
+                new TestLog());
+            await ew.InitializeAsync();
             await ew.TransactionAsync(transaction =>
             {
                 transaction.Add(new VEvent(true));

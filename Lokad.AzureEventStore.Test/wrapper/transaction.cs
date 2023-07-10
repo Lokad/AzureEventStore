@@ -44,18 +44,34 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             public Task<bool> TrySaveAsync(Stream destination, State state, CancellationToken cancel) =>
                 Task.FromResult(false);
+
+            public Task<RestoredState<State>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
+            {
+                return Task.FromResult<RestoredState<State>>(null);
+            }
+
+            public Task CommitAsync(State state, uint sequence, CancellationToken cancel = default)
+            {
+                return Task.CompletedTask;
+            }
         }
 
-        private EventStreamWrapper<TstEvent, State> Init() =>
-            new EventStreamWrapper<TstEvent, State>(
+        private async Task<EventStreamWrapper<TstEvent, State>> Init()
+        {
+            var ew = new EventStreamWrapper<TstEvent, State>(
                 new MemoryStorageDriver(),
-                new[] { new Projection() }, null
-            );
+                new[] { new Projection() }, 
+                null,
+                new StorageProvider(null));
+            await ew.InitializeAsync();
+            return ew;
+        }
+            
 
         [Fact]
         public async Task AppendNothing()
         {
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction => 10);
 
             Assert.Equal(10, value.More);
@@ -65,7 +81,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task AppendOne()
         {
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
             {
                 transaction.Add(new TstEvent(15));
@@ -79,7 +95,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task AppendTwo()
         {
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
             {
                 Assert.Empty(transaction.State.Value);
@@ -96,7 +112,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task AppendTwice()
         {
-            var ew = Init();
+            var ew = await Init();
             await ew.TransactionAsync(transaction => 
                 transaction.Add(new TstEvent(10)));
 
@@ -116,7 +132,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task AppendThenThrow()
         {
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
                 transaction.Add(new TstEvent(15)));
 
@@ -137,7 +153,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task ThrowInterrupts()
         {
-            var ew = Init();
+            var ew = await Init();
 
             try
             {
@@ -160,7 +176,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var commitAInvoked = false;
             var commitBInvoked = false;
 
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
             {
                 transaction.OnAbort += () => abortInvoked = true;
@@ -183,7 +199,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task Abort()
         {
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
             {
                 transaction.Add(new TstEvent(15));
@@ -201,7 +217,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var abortInvoked = false;
             var commitInvoked = false;
 
-            var ew = Init();
+            var ew = await Init();
             var value = await ew.TransactionAsync(transaction =>
             {
                 transaction.Add(new TstEvent(15));
@@ -221,7 +237,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var abortInvoked = false;
             var commitInvoked = false;
 
-            var ew = Init();
+            var ew = await Init();
             try
             {
                 await ew.TransactionAsync(transaction =>
