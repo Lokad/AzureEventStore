@@ -38,6 +38,9 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Settings used to create the state. </summary>
         private readonly StateCreationContext _stateCreationContext;
 
+        /// <summary> Disposable handling the loaded external state. Null otherwise. </summary>
+        private IDisposable _disposable { get; set; }
+
         public ReifiedProjection(
             IProjection<TEvent, TState> projection, 
             StorageProvider storageProvider, 
@@ -67,6 +70,7 @@ namespace Lokad.AzureEventStore.Projections
             _stateCreationContext = storageProvider.GetStateCreationContext(Name);
              _possiblyInconsistent = false;
              Sequence = 0U;
+            _disposable = null;
         }
 
         /// <summary>
@@ -84,6 +88,7 @@ namespace Lokad.AzureEventStore.Projections
             {
                 Sequence = restoredState.Sequence;
                 Current = restoredState.State;
+                _disposable = restoredState.Disposable;
                 return;
             }
 
@@ -94,6 +99,12 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Reset the projection to its initial state and sequence number <c>0</c>. </summary>
         public void Reset()
         {
+            if (_disposable != null)
+            {
+                _disposable.Dispose();
+                _disposable = null;
+            }
+            
             Sequence = 0U;
             Current = _projection.Initial(_stateCreationContext);
             _possiblyInconsistent = false;
