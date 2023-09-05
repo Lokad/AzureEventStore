@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -37,19 +37,30 @@ namespace Lokad.AzureEventStore.Drivers
                 written = true;
                 _file.Seek(0, SeekOrigin.End);
 
-                using (var w = new BinaryWriter(_file, Encoding.UTF8, true))
-                foreach (var e in events)
-                    EventFormat.Write(w, e);
+                var payload = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+                var payloadLength = 0;
+                try
+                {
+                    foreach (var e in events)
+                    {
+                        payloadLength += EventFormat.Write(payload.AsMemory(payloadLength), e);
+                    }
+
+                    _file.Write(payload, 0, payloadLength);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payload);
+                }
             }
 
             return new DriverWriteResult(_file.Length, written);
         }
 
-        public Task<DriverReadResult> ReadAsync(long position, long maxBytes,
-            CancellationToken cancel = new CancellationToken())
-            => Task.FromResult(Read(position, maxBytes));
+        public Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = default)
+            => Task.FromResult(Read(position, backing));
 
-        internal DriverReadResult Read(long position, long maxBytes)
+        internal DriverReadResult Read(long position, Memory<byte> backing)
         {
             var events = new List<RawEvent>();
 
@@ -58,28 +69,28 @@ namespace Lokad.AzureEventStore.Drivers
 
             _file.Seek(position, SeekOrigin.Begin);
 
-            var readBytes = 0L;
+            var availableBytes = _file.Length - position;
 
-            using (var r = new BinaryReader(_file, Encoding.UTF8, true))
+            // Fill backing from _file
+            var backingBytes = (int)Math.Min(backing.Length, availableBytes);
+            for (var readToBuffer = 0; readToBuffer < backingBytes; )
             {
-                var availableBytes = _file.Length - position;
-                while (readBytes < availableBytes)
-                {
-                    var evt = EventFormat.Read(r);
-                    var newReadBytes = _file.Position - position;
-
-                    if (events.Count == 0 || newReadBytes < maxBytes)
-                    {
-                        events.Add(evt);
-                        readBytes = newReadBytes;
-                    }
-
-                    if (newReadBytes >= maxBytes)
-                        break;
-                }
+                var read = _file.Read(backing.Span[readToBuffer..]);
+                if (read == 0) throw new InvalidDataException("Unexpected end-of-file");
+                readToBuffer += read;
             }
 
-            return new DriverReadResult(position + readBytes, events);
+            // Read as many events as possible from buffer
+            backing = backing[..backingBytes];
+            var parsedBytes = 0;
+            while (EventFormat.TryParse(backing[parsedBytes..], out var evtSize) is RawEvent ev)
+            {
+                parsedBytes += evtSize;
+                events.Add(ev);
+            }
+
+            return new DriverReadResult(position + parsedBytes, events);
+
         }
         
         public async Task<uint> GetLastKeyAsync(CancellationToken cancel = new CancellationToken()) => 

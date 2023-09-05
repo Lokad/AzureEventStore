@@ -1,6 +1,10 @@
+using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+
+#nullable enable
 
 namespace Lokad.AzureEventStore.Drivers
 {
@@ -23,14 +27,27 @@ namespace Lokad.AzureEventStore.Drivers
 
         /// <summary> Append an event to a stream. </summary>
         /// <see cref="Read"/>
-        public static long Write(BinaryWriter writer, RawEvent e)
+        public static int Write(Memory<byte> memory, RawEvent e)
         {
-            var size = e.Contents.Length/8;
-            writer.Write((ushort) size);
-            writer.Write(e.Sequence);
-            writer.Write(e.Contents);
-            writer.Write(Checksum(e.Sequence, e.Contents, 0, e.Contents.Length));
-            writer.Write((ushort) size);
+            var span = memory.Span;
+            var size = checked((ushort)(e.Contents.Length/8));
+
+            MemoryMarshal.Write(span, ref size);
+            span = span[sizeof(ushort)..];
+
+            uint seq = e.Sequence;
+            MemoryMarshal.Write(span, ref seq);
+            span = span[sizeof(uint)..];
+
+            var payload = e.Contents.Span;
+            payload.CopyTo(span);
+            span = span[e.Contents.Length..];
+
+            uint checksum = Checksum(seq, payload);
+            MemoryMarshal.Write(span, ref checksum);
+            span = span[sizeof(uint)..];
+
+            MemoryMarshal.Write(span, ref size);
 
             return 2 // Size
                    + 4 // Sequence
@@ -111,39 +128,55 @@ namespace Lokad.AzureEventStore.Drivers
         }
 
         /// <summary> Computes a CRC32 checksum. </summary>
-        private static uint Checksum(uint seed, byte[] b, int s, int o)
+        private static uint Checksum(uint seed, ReadOnlySpan<byte> b)
         {
             var table = ChecksumTable;
             var crc32 = seed;
-            for (var i = s; i < s + o; i++)
-                crc32 = (crc32 >> 8) ^ table[b[i] ^ crc32 & 0xff];
+            foreach (var by in b)
+                crc32 = (crc32 >> 8) ^ table[by ^ crc32 & 0xff];
 
             return crc32;
         }
 
-        /// <summary> Read an event from the stream. </summary>
-        /// <see cref="Write"/>
-        public static RawEvent Read(BinaryReader reader)
+        public static RawEvent? TryParse(ReadOnlyMemory<byte> contents, out int readBytes)
         {
-            var size = reader.ReadUInt16();
-            var key = reader.ReadUInt32();
+            var span = contents.Span;
+            readBytes = 0;
 
-            var content = reader.ReadBytes(size * 8);
+            if (span.Length < sizeof(ushort)) 
+                return null; // Too short to fit an entire event
 
-            var expected = Checksum(key, content, 0, content.Length);
-            var checksum = reader.ReadUInt32();
+            var payloadSize = MemoryMarshal.Read<ushort>(span) * 8;
+            var totalSize   = payloadSize + 2 * sizeof(uint) + 2 * sizeof(ushort);
 
-            var size2 = reader.ReadUInt16();
+            if (span.Length < totalSize)
+                return null; // Too short to fit _this_ entire envent
 
-            if (size != size2)
+            span = span[sizeof(ushort)..];
+
+            var key = MemoryMarshal.Read<uint>(span);
+            span = span[sizeof(uint)..];
+
+            var payload = span[..payloadSize];
+            span = span[payloadSize..];
+
+            var expected = Checksum(key, payload);
+
+            var checksum = MemoryMarshal.Read<uint>(span);
+            span = span[sizeof(uint)..];
+
+            var payloadSize2 = MemoryMarshal.Read<ushort>(span) * 8;
+
+            if (payloadSize != payloadSize2)
                 throw new InvalidDataException(
-                    $"Corrupted data: size mismatch {size} != {size2}");
+                    $"Corrupted data: size mismatch {payloadSize} != {payloadSize2}");
 
             if (checksum != expected)
                 throw new InvalidDataException(
                     $"Corrupted data: checksum mismatch {checksum:X8} != {expected:X8}");
 
-            return new RawEvent(key, content);
+            readBytes = totalSize;
+            return new RawEvent(key, contents.Slice(sizeof(uint) + sizeof(ushort), payloadSize));
         }
     }
 }

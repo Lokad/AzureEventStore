@@ -1,6 +1,6 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -8,9 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
-using Azure.Storage;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 
 namespace Lokad.AzureEventStore.Drivers
@@ -55,8 +53,6 @@ namespace Lokad.AzureEventStore.Drivers
 
         /// <summary> The last known write position. Used to reject writes early. </summary>
         private long _lastKnownPosition;
-
-        private readonly byte[] _buffer = new byte[1024 * 1024 * 4];
 
         /// <summary> 
         /// Refreshes the local cache of positions, keys and blobs from Azure.         
@@ -179,78 +175,80 @@ namespace Lokad.AzureEventStore.Drivers
 
             // Generate appended payload
 
-            byte[] payload;
-            using (var stream = new MemoryStream())
-            using (var writer = new BinaryWriter(stream))
+            var payload = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+            var payloadLength = 0;
+            try
             {
                 foreach (var e in events)
                 {
-                    EventFormat.Write(writer, e);
+                    payloadLength += EventFormat.Write(payload.AsMemory(payloadLength), e);
                 }
 
-                payload = stream.ToArray();
-            }
+                // Nothing to write, but still check position
+                if (payloadLength == 0)
+                {
+                    _lastKnownPosition = await RefreshCache(cancel);
+                    return new DriverWriteResult(_lastKnownPosition, position == _lastKnownPosition);
+                }
 
-            // Nothing to write, but still check position
-            if (payload.Length == 0)
-            {
-                _lastKnownPosition = await RefreshCache(cancel);
-                return new DriverWriteResult(_lastKnownPosition, position == _lastKnownPosition);
-            }
+                // Attempt write to last blob.
+                bool collision;
+                try
+                {
+                    var offset = _firstPosition[^1];
+                    var lastBlob = _blobs[^1].GetAppendBlobClient();
+                    await lastBlob.AppendTransactionalAsync(payload, payloadLength, position - offset, cancel);
 
-            // Attempt write to last blob.
-            bool collision;
-            try
-            {
-                var offset = _firstPosition[^1];
-                var lastBlob = _blobs[^1].GetAppendBlobClient();
-                await lastBlob.AppendTransactionalAsync(payload, position - offset, cancel);
+                    _lastKnownPosition = position + payloadLength;
 
-                _lastKnownPosition = position + payload.Length;
+                    return new DriverWriteResult(_lastKnownPosition, true);
+                }
+                catch (RequestFailedException e)
+                {
+                    if (!e.IsCollision() && !e.IsMaxReached()) throw;
 
-                return new DriverWriteResult(_lastKnownPosition, true);
-            }
-            catch (RequestFailedException e)
-            {
-                if (!e.IsCollision() && !e.IsMaxReached()) throw;
+                    collision = e.IsCollision();
+                }
 
-                collision = e.IsCollision();
-            }
+                // Collision means we do not have the proper _lastKnownPosition, so refresh
+                // the cache and return a failure.
+                if (collision)
+                    return new DriverWriteResult(await RefreshCache(cancel), false);
 
-            // Collision means we do not have the proper _lastKnownPosition, so refresh
-            // the cache and return a failure.
-            if (collision)
+                // Too many appends can be solved by creating a new blob and appending to it. 
+                // The append code is similar but subtly different, so we just rewrite it 
+                // below.
+                await CreateLastBlob(cancel);
+
+                try
+                {
+                    var lastBlob = _blobs[^1].GetAppendBlobClient();
+                    await lastBlob.AppendTransactionalAsync(payload, payloadLength, 0, cancel);
+
+                    _lastKnownPosition = position + payload.Length;
+
+                    return new DriverWriteResult(_lastKnownPosition, true);
+                }
+                catch (RequestFailedException e)
+                {
+                    // Only a collision can stop us here, no max-appends-reached should
+                    // happen when appending at position 0.
+                    if (!e.IsCollision()) throw;
+                }
+
+                // Collision here means someone else already created the new blob and appended
+                // to it, so refresh everything and report failure.
                 return new DriverWriteResult(await RefreshCache(cancel), false);
-
-            // Too many appends can be solved by creating a new blob and appending to it. 
-            // The append code is similar but subtly different, so we just rewrite it 
-            // below.
-            await CreateLastBlob(cancel);
-
-            try
-            {
-                var lastBlob = _blobs[^1].GetAppendBlobClient();
-                await lastBlob.AppendTransactionalAsync(payload, 0, cancel);
-
-                _lastKnownPosition = position + payload.Length;
-
-                return new DriverWriteResult(_lastKnownPosition, true);
             }
-            catch (RequestFailedException e)
+            finally
             {
-                // Only a collision can stop us here, no max-appends-reached should
-                // happen when appending at position 0.
-                if (!e.IsCollision()) throw;
+                ArrayPool<byte>.Shared.Return(payload);
             }
-
-            // Collision here means someone else already created the new blob and appended
-            // to it, so refresh everything and report failure.
-            return new DriverWriteResult(await RefreshCache(cancel), false);
         }
 
         public async Task<DriverReadResult> ReadAsync(
             long position,
-            long maxBytes,
+            Memory<byte> backing,
             CancellationToken cancel = default)
         {
             // STEP 1: PRELIMINARY CHECKS
@@ -294,43 +292,35 @@ namespace Lokad.AzureEventStore.Drivers
             // =====================
 
             var startPos = position - firstPosition;
-            maxBytes = Math.Min(maxBytes, Math.Min(_buffer.Length, blobSize - startPos));
+            var maxBytes = (int)Math.Min(backing.Length, blobSize - startPos);
+            backing = backing[..maxBytes];
 
             if (maxBytes == 0)
                 return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
 
-            var length = await ReadRangeAsync(blob, startPos, maxBytes, cancel);
+            var readBytes = await ReadRangeAsync(blob, startPos, backing, cancel);
+            backing = backing[..readBytes];
 
             // STEP 4: PARSE DATA
             // ==================
 
             var events = new List<RawEvent>();
-            var readBytes = 0L;
+            var parsedBytes = 0;
 
-            using (var ms = new MemoryStream(_buffer, 0, length))
-            using (var reader = new BinaryReader(ms))
+            try
             {
-                while (true)
+                while (EventFormat.TryParse(backing[parsedBytes..], out var parsed) is RawEvent re)
                 {
-                    try
-                    {
-                        events.Add(EventFormat.Read(reader));
-
-                        // Only update after finishing a full read !
-                        readBytes = ms.Position;
-                    }
-                    catch (EndOfStreamException)
-                    {
-                        break;
-                    }
-                    catch (InvalidDataException e)
-                    {
-                        throw new InvalidDataException($"{e.Message} at {position + readBytes}");
-                    }
+                    events.Add(re);
+                    parsedBytes += parsed;
                 }
             }
+            catch (InvalidDataException e)
+            {
+                throw new InvalidDataException($"{e.Message} at {position + parsedBytes}");
+            }
 
-            return new DriverReadResult(position + readBytes, events);
+            return new DriverReadResult(position + parsedBytes, events);
         }
 
         /// <summary>
@@ -344,11 +334,12 @@ namespace Lokad.AzureEventStore.Drivers
         /// 
         ///     Returns the total size read.
         /// </remarks>
-        private async Task<int> ReadRangeAsync(EventBlob blob, long start, long maxBytes, CancellationToken cancel)
+        private async Task<int> ReadRangeAsync(EventBlob blob, long start, Memory<byte> backing, CancellationToken cancel)
         {
             // 512KB has been measured as a good slice size. A typical 4MB request is sliced into 8 pieces,
             // which are then downloaded in parallel.
             const int maxSliceSize = 1024 * 512;
+            var maxBytes = backing.Length;
 
             List<Task<int>> todo = null;
             var bufferStart = 0;
@@ -356,7 +347,7 @@ namespace Lokad.AzureEventStore.Drivers
             {
                 todo ??= new List<Task<int>>();
                 todo.Add(blob.ReadSubRangeAsync(
-                    _buffer.AsMemory(bufferStart, maxSliceSize),
+                    backing.Slice(bufferStart, maxSliceSize),
                     start,
                     true,
                     cancel));
@@ -367,7 +358,7 @@ namespace Lokad.AzureEventStore.Drivers
             }
 
             var length = bufferStart + await blob.ReadSubRangeAsync(
-                _buffer.AsMemory(bufferStart, (int)maxBytes),
+                backing.Slice(bufferStart, maxBytes),
                 start,
                 blob.Bytes >= start + maxBytes,
                 cancel).ConfigureAwait(false);

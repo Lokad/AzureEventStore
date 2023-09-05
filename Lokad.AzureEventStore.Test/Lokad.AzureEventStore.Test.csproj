@@ -28,7 +28,6 @@
     <PackageReference Include="Lokad.AzureEventStore" Version="10.0.1" />
     <PackageReference Include="Lokad.AzureEventStore.Cache" Version="2.1.0" />
   </ItemGroup>
-  
   <!--<ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />

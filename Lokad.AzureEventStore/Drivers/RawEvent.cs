@@ -3,7 +3,7 @@ using System;
 namespace Lokad.AzureEventStore.Drivers
 {
     /// <summary> Raw event data, as read and written through a <see cref="IStorageDriver"/>. </summary>
-    internal sealed class RawEvent
+    internal struct RawEvent
     {
         /// <summary>
         /// The sequence number of the event: these should be strictly increasing, 
@@ -16,9 +16,9 @@ namespace Lokad.AzureEventStore.Drivers
         /// The contents of the event. The size should be a multiple of 8, and no greater
         /// than 2^16 * 8 = 512KB.
         /// </summary>
-        public readonly byte[] Contents;
+        public readonly ReadOnlyMemory<byte> Contents;
 
-        public RawEvent(uint sequence, byte[] contents)
+        public RawEvent(uint sequence, ReadOnlyMemory<byte> contents)
         {
             Sequence = sequence;
             Contents = contents;

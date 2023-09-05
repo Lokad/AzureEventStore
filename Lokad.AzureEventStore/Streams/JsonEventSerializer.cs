@@ -63,7 +63,7 @@ namespace Lokad.AzureEventStore.Streams
             _typeByName = typeByName;
         }
 
-        /// <see cref="Deserialize(byte[])"/>
+        /// <see cref="Deserialize(ReadOnlyMemory{byte})"/>
         private TEvent Deserialize(string json)
         {
             // Special case: no type analysis required
@@ -104,11 +104,9 @@ namespace Lokad.AzureEventStore.Streams
         }
 
         /// <summary> Deserialize an event, loading its type from its field "Type". </summary>
-        public TEvent Deserialize(byte[] data)
+        public TEvent Deserialize(ReadOnlyMemory<byte> data)
         {
-            if (data == null) throw new ArgumentNullException(nameof(data));
-
-            var json = _encoding.GetString(data);
+            var json = _encoding.GetString(data.Span);
             return Deserialize(json);
         }
 

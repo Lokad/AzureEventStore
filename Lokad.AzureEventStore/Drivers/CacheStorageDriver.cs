@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -48,13 +49,13 @@ namespace Lokad.AzureEventStore.Drivers
             _source.WriteAsync(position, events, cancel);           
 
         /// <see cref="IStorageDriver.ReadAsync"/>
-        public async Task<DriverReadResult> ReadAsync(long position, long maxBytes, CancellationToken cancel = new CancellationToken())
+        public async Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = new CancellationToken())
         {
             // Read data up to the requested position (if not already available)
             var cachePos = _cache.GetPosition();
             while (position >= cachePos)
             {
-                var r = await _source.ReadAsync(cachePos, maxBytes, cancel);
+                var r = await _source.ReadAsync(cachePos, backing, cancel);
                 var w = await _cache.WriteAsync(cachePos, r.Events, cancel);
 
                 if (r.NextPosition == cachePos)
@@ -70,7 +71,7 @@ namespace Lokad.AzureEventStore.Drivers
                 cachePos = w.NextPosition;
             }
             
-            return await _cache.ReadAsync(position, maxBytes, cancel);            
+            return await _cache.ReadAsync(position, backing, cancel);
         }
 
         /// <see cref="IStorageDriver.SeekAsync"/>
@@ -82,20 +83,27 @@ namespace Lokad.AzureEventStore.Drivers
             if (key <= _maxCacheKey || position <= _cache.GetPosition())
                 // Key is within cached portion, so we'll have to search for it in there.
                 return position;
-            
-            // Key is within non-cached position, so we actually advance the cached stream up to the 
-            // source stream, looking for the specified event.
-            while (true)
-            {
-                const int seekBufferSize = 1024*1024;
-                var cachePos = _cache.GetPosition();
-                var read = await ReadAsync(cachePos, seekBufferSize, cancel);
 
-                if (read.Events.Any(e => e.Sequence >= key) || read.NextPosition == cachePos)
-                    // We have found the events we were searching for, OR we have run out of
-                    // events. In both cases, we return a lower bound on the position (with
-                    // an error margin of 'seekBufferSize' bytes.
-                    return Math.Max(cachePos, position);
+            var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024);
+            try
+            {
+                // Key is within non-cached position, so we actually advance the cached stream up to the 
+                // source stream, looking for the specified event.
+                while (true)
+                {
+                    var cachePos = _cache.GetPosition();
+                    var read = await ReadAsync(cachePos, buffer, cancel);
+
+                    if (read.Events.Any(e => e.Sequence >= key) || read.NextPosition == cachePos)
+                        // We have found the events we were searching for, OR we have run out of
+                        // events. In both cases, we return a lower bound on the position (with
+                        // an error margin of 'seekBufferSize' bytes.
+                        return Math.Max(cachePos, position);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
     }

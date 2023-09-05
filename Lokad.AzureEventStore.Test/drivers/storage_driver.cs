@@ -22,7 +22,7 @@ namespace Lokad.AzureEventStore.Test.drivers
         [Fact]
         public async Task no_read_on_empty()
         {
-            var read = await _driver.ReadAsync(0, 1024);
+            var read = await _driver.ReadAsync(0, new byte[1024]);
             Assert.Equal(0, read.NextPosition);
             Assert.Empty(read.Events);
         }
@@ -39,16 +39,16 @@ namespace Lokad.AzureEventStore.Test.drivers
             var nextPos = write.NextPosition;
             Assert.True(0 < nextPos);
 
-            var read = await _driver.ReadAsync(0, 9*1024);
+            var read = await _driver.ReadAsync(0, new byte[9*1024]);
             
             Assert.Equal(nextPos, read.NextPosition);
             Assert.Equal(1, read.Events.Count);
 
-            Assert.Equal(bytes, read.Events[0].Contents);
+            Assert.Equal(bytes, read.Events[0].Contents.ToArray());
             Assert.Equal((uint) 12, read.Events[0].Sequence);
 
             var oldPosition = read.NextPosition;
-            read = await _driver.ReadAsync(oldPosition, 9*1024);
+            read = await _driver.ReadAsync(oldPosition, new byte[9*1024]);
             Assert.Equal(oldPosition, read.NextPosition);
             Assert.Empty(read.Events);
         }
@@ -86,17 +86,17 @@ namespace Lokad.AzureEventStore.Test.drivers
             write = await _driver.WriteAsync(pos1, new[] { new RawEvent(42, bytes) });
             var pos2 = write.NextPosition;
 
-            var read = await _driver.ReadAsync(0, 9 * 1024);
+            var read = await _driver.ReadAsync(0, new byte[9 * 1024]);
             Assert.Equal(1, read.Events.Count);
             Assert.Equal(pos1, read.NextPosition);
             Assert.Equal((uint) 12, read.Events[0].Sequence);
 
-            read = await _driver.ReadAsync(pos1, 9 * 1024);
+            read = await _driver.ReadAsync(pos1, new byte[9 * 1024]);
             Assert.Equal(1, read.Events.Count);
             Assert.Equal(pos2, read.NextPosition);
             Assert.Equal((uint) 42, read.Events[0].Sequence);
 
-            read = await _driver.ReadAsync(0, 1024 * 1024);
+            read = await _driver.ReadAsync(0, new byte[1024 * 1024]);
             Assert.Equal(2, read.Events.Count);
             Assert.Equal(pos2, read.NextPosition);
             Assert.Equal((uint) 12, read.Events[0].Sequence);

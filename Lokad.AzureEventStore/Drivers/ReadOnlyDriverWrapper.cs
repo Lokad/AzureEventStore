@@ -18,21 +18,21 @@ namespace Lokad.AzureEventStore.Drivers
             Wrapped = wrapped;
         }
 
-        public Task<long> GetPositionAsync(CancellationToken cancel = new CancellationToken()) => 
+        public Task<long> GetPositionAsync(CancellationToken cancel = default) => 
             Wrapped.GetPositionAsync(cancel);
 
-        public Task<DriverWriteResult> WriteAsync(long position, IEnumerable<RawEvent> events, CancellationToken cancel = new CancellationToken())
+        public Task<DriverWriteResult> WriteAsync(long position, IEnumerable<RawEvent> events, CancellationToken cancel = default)
         {
             throw new InvalidOperationException("Storage driver is read-only");
         }
 
-        public Task<DriverReadResult> ReadAsync(long position, long maxBytes, CancellationToken cancel = new CancellationToken()) => 
-            Wrapped.ReadAsync(position, maxBytes, cancel);
+        public Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = default) => 
+            Wrapped.ReadAsync(position, backing, cancel);
 
-        public Task<uint> GetLastKeyAsync(CancellationToken cancel = new CancellationToken()) => 
+        public Task<uint> GetLastKeyAsync(CancellationToken cancel = default) => 
             Wrapped.GetLastKeyAsync(cancel);
 
-        public Task<long> SeekAsync(uint key, long position = 0, CancellationToken cancel = new CancellationToken()) => 
+        public Task<long> SeekAsync(uint key, long position = 0, CancellationToken cancel = default) => 
             Wrapped.SeekAsync(key, position, cancel);
     }
 }

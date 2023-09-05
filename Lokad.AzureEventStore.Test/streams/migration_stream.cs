@@ -44,13 +44,13 @@ namespace Lokad.AzureEventStore.Test.streams
 
             Assert.Equal(42U, await stream.LastWrittenAsync());
 
-            var written = driver.Read(0L, 10240);
+            var written = driver.Read(0L, new byte[10240]);
 
             Assert.Equal(2, written.Events.Count);
             Assert.Equal((uint) 11, written.Events[0].Sequence);
-            Assert.Equal("{\"a\":10}", Encoding.UTF8.GetString(written.Events[0].Contents));
+            Assert.Equal("{\"a\":10}", Encoding.UTF8.GetString(written.Events[0].Contents.Span));
             Assert.Equal((uint) 42, written.Events[1].Sequence);
-            Assert.Equal("{\"a\":20}", Encoding.UTF8.GetString(written.Events[1].Contents));
+            Assert.Equal("{\"a\":20}", Encoding.UTF8.GetString(written.Events[1].Contents.Span));
         }
     }
 }

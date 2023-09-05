@@ -11,7 +11,11 @@ namespace Lokad.AzureEventStore.Test.streams
     public interface IStreamEvent {}
 
     [DataContract]
-    public sealed class StreamEvent : IStreamEvent {}
+    public sealed class StreamEvent : IStreamEvent
+    {
+        [DataMember]
+        public int X { get; set; }
+    }
 
     [DataContract]
     public sealed class IntegerEvent : IStreamEvent
@@ -88,7 +92,8 @@ namespace Lokad.AzureEventStore.Test.streams
             var result = await streamA.WriteAsync(new IStreamEvent[] { new StreamEvent() });
             Assert.Equal(1u, result);
 
-            while (await streamB.FetchAsync()) { }
+            while (await streamB.FetchAsync()) 
+                while (streamB.TryGetNext() is IStreamEvent) { }
 
             result = await streamB.WriteAsync(new IStreamEvent[] { new StreamEvent() });
             Assert.Equal(2u, result);
@@ -96,7 +101,8 @@ namespace Lokad.AzureEventStore.Test.streams
             result = await streamA.WriteAsync(new IStreamEvent[] { new StreamEvent() });
             Assert.Null(result);
 
-            while (await streamA.FetchAsync()) { }
+            while (await streamA.FetchAsync())
+                while (streamA.TryGetNext() is IStreamEvent) { }
 
             result = await streamA.WriteAsync(new IStreamEvent[] {new StreamEvent()});
             Assert.Equal(3u, result);
@@ -114,6 +120,7 @@ namespace Lokad.AzureEventStore.Test.streams
             stream = new EventStream<IStreamEvent>(driver);
 
             while (await stream.FetchAsync()) { }
+
             var next = 0;
 
             IStreamEvent e;
@@ -123,7 +130,7 @@ namespace Lokad.AzureEventStore.Test.streams
                 ++next;
             }
 
-            Assert.Equal(next, 20);
+            Assert.Equal(20, next);
         }
 
         [Fact]
@@ -149,7 +156,7 @@ namespace Lokad.AzureEventStore.Test.streams
 
             } while (await stream.FetchAsync());
 
-            Assert.Equal(next, 20);
+            Assert.Equal(20, next);
         }
 
         [Fact]
@@ -180,7 +187,7 @@ namespace Lokad.AzureEventStore.Test.streams
 
             } while (shouldContinue());
 
-            Assert.Equal(next, 20);
+            Assert.Equal(20, next);
         }
 
 
@@ -214,7 +221,7 @@ namespace Lokad.AzureEventStore.Test.streams
 
             } while (shouldContinue());
 
-            Assert.Equal(next, 20);
+            Assert.Equal(20, next);
         }
 
         [Fact]
@@ -231,7 +238,7 @@ namespace Lokad.AzureEventStore.Test.streams
             while (await stream.FetchAsync()) { }
             await stream.DiscardUpTo(11);
             
-            Assert.Equal((uint) 10, (uint) stream.Sequence);
+            Assert.Equal((uint) 10, stream.Sequence);
 
             var next = 10;
 
@@ -242,7 +249,7 @@ namespace Lokad.AzureEventStore.Test.streams
                 ++next;
             }
 
-            Assert.Equal(next, 20);
+            Assert.Equal(20, next);
         }
 
         [Fact]
@@ -259,7 +266,7 @@ namespace Lokad.AzureEventStore.Test.streams
 
             await stream.DiscardUpTo(30);
 
-            Assert.Equal((uint) 20, (uint) stream.Sequence);
+            Assert.Equal((uint) 20, stream.Sequence);
         }
     }
 }

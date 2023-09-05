@@ -92,7 +92,7 @@ namespace Lokad.AzureEventStore.Test.drivers
                 var j = 0;
                 while (rp < p)
                 {
-                    var drr = await driver.ReadAsync(rp, 4 * 1024 * 1024);
+                    var drr = await driver.ReadAsync(rp, new byte[4 * 1024 * 1024]);
                     rp = drr.NextPosition;
                     foreach (var e in drr.Events)
                     {
@@ -157,7 +157,7 @@ namespace Lokad.AzureEventStore.Test.drivers
                 var j = 0;
                 while (rp < p)
                 {
-                    var drr = await driver.ReadAsync(rp, 4 * 1024 * 1024);
+                    var drr = await driver.ReadAsync(rp, new byte[4 * 1024 * 1024]);
                     rp = drr.NextPosition;
                     foreach (var e in drr.Events)
                     {

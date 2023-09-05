@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -88,6 +89,22 @@ namespace Lokad.AzureEventStore.Streams
         private readonly Queue<RawEvent> _cache = new Queue<RawEvent>();
 
         /// <summary>
+        ///     The size of the buffers used by the event stream.
+        /// </summary>
+        const int MaxBytes = 1024 * 1024 * 4;
+
+        /// <summary>
+        ///     The array that contains the data inside the raw events in <see cref="_cache"/>.
+        /// </summary>
+        private byte[] _activeBacking = new byte[MaxBytes];
+
+        /// <summary>
+        ///     The array that is currently used by <see cref="BackgroundFetchAsync(CancellationToken)"/>
+        ///     to retrieve event data.
+        /// </summary>
+        private byte[] _fetchBacking = new byte[MaxBytes];
+
+        /// <summary>
         /// <see cref="IEventStream{TEvent}.WriteAsync"/>
         /// </summary>
         public async Task<uint?> WriteAsync(IReadOnlyList<TEvent> events, CancellationToken cancel = default)
@@ -149,23 +166,25 @@ namespace Lokad.AzureEventStore.Streams
 
         public async Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default)
         {
-            const int maxBytes = 1024 * 1024 * 4;
+            var read = await Storage.ReadAsync(Position, _fetchBacking, cancel);
+
+            if (read.Events.Count == 0)
+                return () => false;
             
-            var read = await Storage.ReadAsync(Position, maxBytes, cancel);
-
-            if (read.Events.Count == 0) return () => false;
-
             return () =>
             {
+                if (_cache.Count > 0)
+                    return true;
+                
                 Position = read.NextPosition;
-
-                if (read.Events.Count == 0) return false;
 
                 foreach (var e in read.Events)
                 {
                     _cache.Enqueue(e);
                     _lastSequence = e.Sequence;
                 }
+
+                (_fetchBacking, _activeBacking) = (_activeBacking, _fetchBacking);
 
                 return true;
             };
@@ -191,8 +210,7 @@ namespace Lokad.AzureEventStore.Streams
             {
                 Sequence = _lastSequence;
 
-                const int maxBytes = 1024*1024*4;
-                var read = await Storage.ReadAsync(Position, maxBytes, cancel);
+                var read = await Storage.ReadAsync(Position, _fetchBacking, cancel);
 
                 // Reached end of stream.
                 if (read.Events.Count == 0)
@@ -222,6 +240,8 @@ namespace Lokad.AzureEventStore.Streams
                         }
                     }
                 }
+
+                (_fetchBacking, _activeBacking) = (_activeBacking, _fetchBacking);
             }
 
             return Sequence;

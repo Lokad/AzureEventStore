@@ -213,11 +213,12 @@ namespace Lokad.AzureEventStore.Drivers
         public static Task AppendTransactionalAsync(
             this AppendBlobClient blob,
             byte[] data,
+            int dataLength,
             long position,
             CancellationToken cancel = default)
         {
             return blob.AppendBlockAsync(
-                new MemoryStream(data, 0, data.Length),
+                new MemoryStream(data, 0, dataLength),
                 conditions: new AppendBlobRequestConditions { IfAppendPositionEqual = position },
                 cancellationToken: cancel);
         }

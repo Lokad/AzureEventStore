@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,12 +41,12 @@ namespace Lokad.AzureEventStore.Drivers
             }
         }
 
-        public async Task<DriverReadResult> ReadAsync(long position, long maxBytes, CancellationToken cancel = new CancellationToken())
+        public async Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = new CancellationToken())
         {
             var sw = Stopwatch.StartNew();
             try
             {
-                return await Inner.ReadAsync(position, maxBytes, cancel);
+                return await Inner.ReadAsync(position, backing, cancel);
             }
             finally
             {
