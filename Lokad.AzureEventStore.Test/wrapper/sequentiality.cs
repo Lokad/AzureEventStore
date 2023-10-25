@@ -95,6 +95,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             {
                 return Task.CompletedTask;
             }
+
+            public Task<CheckSequence> UpkeepAsync(CheckSequence state, CancellationToken cancel = default)
+            {
+                return Task.FromResult(state);
+            }
         }
 
         public uint LastEvt { get; }

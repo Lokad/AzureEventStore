@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.Serialization;
 using System.Text;
+using Lokad.AzureEventStore.Exceptions;
 using Lokad.AzureEventStore.Streams;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -131,9 +132,9 @@ namespace Lokad.AzureEventStore.Test.streams
                 _serializer.Deserialize(json);
                 Assert.True(false);
             }
-            catch (Exception e)
+            catch (EventDeserializationException e)
             {
-                Assert.Equal("Unknown 'Type' property: 'Missing'", e.Message);
+                Assert.Equal("Unknown 'Type' property: 'Missing'", e.InnerException.Message);
             }
         }
 
@@ -146,11 +147,11 @@ namespace Lokad.AzureEventStore.Test.streams
                 _serializer.Deserialize(json);
                 Assert.True(false);
             }
-            catch (JsonSerializationException e)
+            catch (EventDeserializationException e)
             {
                 Assert.Equal(
                     "Required property 'Real' not found in JSON. Path '', line 1, position 23.",
-                    e.Message);
+                    e.InnerException.Message);
             }
         }
 
@@ -163,9 +164,9 @@ namespace Lokad.AzureEventStore.Test.streams
                 _serializer.Deserialize(json);
                 Assert.True(false);
             }
-            catch (Exception e)
+            catch (EventDeserializationException e)
             {
-                Assert.Equal("Could not find 'Type' property.", e.Message);
+                Assert.Equal("Could not find 'Type' property.", e.InnerException.Message);
             }
         }
 
@@ -178,9 +179,9 @@ namespace Lokad.AzureEventStore.Test.streams
                 _serializer.Deserialize(json);
                 Assert.True(false);
             }
-            catch (Exception e)
+            catch (EventDeserializationException e)
             {
-                Assert.Equal("Could not find 'Type' property.", e.Message);
+                Assert.Equal("Could not find 'Type' property.", e.InnerException.Message);
             }
         }
 

@@ -54,6 +54,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
             {
                 return Task.CompletedTask;
             }
+
+            public Task<State> UpkeepAsync(State state, CancellationToken cancel = default)
+            {
+                return Task.FromResult(state);
+            }
         }
 
         private async Task<EventStreamWrapper<TstEvent, State>> Init()

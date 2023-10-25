@@ -6,17 +6,17 @@
     <OutputType>Library</OutputType>
     <Company>Lokad</Company>
     <Copyright>Copyright © Lokad 2023</Copyright>
-    <AssemblyVersion>10.1.0.0</AssemblyVersion>
-    <FileVersion>10.1.0.0</FileVersion>
+    <AssemblyVersion>11.0.0.0</AssemblyVersion>
+    <FileVersion>11.0.0.0</FileVersion>
     <PackageId>Lokad.AzureEventStore</PackageId>
-    <PackageVersion>10.1.0.0</PackageVersion>
+    <PackageVersion>11.0.0.0</PackageVersion>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>Lokad</Authors>
     <Description>Simple, low-maintenance event sourcing backed by Azure Blob Storage.</Description>
     <PackageLicenseUrl></PackageLicenseUrl>
     <PackageProjectUrl>https://github.com/Lokad/AzureEventStore</PackageProjectUrl>
     <PackageIconUrl></PackageIconUrl>
-    <Version>10.1.0</Version>
+    <Version>11.0.0</Version>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <PackageIcon>lokad.png</PackageIcon>
   </PropertyGroup>

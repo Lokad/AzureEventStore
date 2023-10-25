@@ -65,6 +65,11 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 return Task.CompletedTask;
             }
 
+            public Task<VState> UpkeepAsync(VState state, CancellationToken cancel = default)
+            {
+                return Task.FromResult(state);
+            }
+
             public string FullName => "CheckValProj-01";
         }
 
