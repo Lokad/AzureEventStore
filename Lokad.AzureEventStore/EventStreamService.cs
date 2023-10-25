@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Threading;
 using System.Threading.Tasks;
+using Lokad.AzureEventStore.Exceptions;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
 using Lokad.AzureEventStore.Streams;
@@ -372,7 +373,7 @@ namespace Lokad.AzureEventStore
 
         /// <summary>
         ///     The number of events to be passed to the projection before
-        ///     attempting a save/load cycle of the projection.
+        ///     performing upkeep operations like attempting a save/load cycle of the projection.
         /// </summary>
         /// <remarks>
         ///     Due to performance considerations, this number may be slightly 
@@ -387,10 +388,10 @@ namespace Lokad.AzureEventStore
         ///     event count is reset to zero. This means that this limit is 
         ///     really only expected to be hit during the initial catch-up.
         /// </remarks>
-        public uint EventsBetweenCacheSaves
+        public uint EventsBetweenUpkeepOpportunities
         {
-            get => Wrapper.EventsBetweenCacheSaves;
-            set => Wrapper.EventsBetweenCacheSaves = value;
+            get => Wrapper.EventsBetweenUpkeepOpportunities ;
+            set => Wrapper.EventsBetweenUpkeepOpportunities  = value;
         }
     }
 }

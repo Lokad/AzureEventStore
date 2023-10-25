@@ -54,6 +54,22 @@ namespace Lokad.AzureEventStore.Projections
         /// such as flushing parts of it to an external state that may be loaded later.
         /// </summary>
         Task CommitAsync(uint sequence, CancellationToken cancel = default);
+
+        /// <summary>
+        ///     Provides the projection with an opportunity to perform upkeep operations on 
+        ///     the state (such as compacting the memory representation, or flushing to disk).
+        ///     This function is only called during the initial stream catch-up phase, so it
+        ///     is guaranteed that no other thread is currently accessing the state, a 
+        ///     sub-element of the state, or any sub-element of any ancestor state that has been
+        ///     returned by this projection (meaning that it is safe to make that data
+        ///     unavailable for the entire duration of the upkeep).
+        /// </summary>
+        /// <remarks>
+        ///     This function is called at least once during the stream catch-up phase, but 
+        ///     maybe called several times depending on unspecified factors, such as the
+        ///     number of processed events. 
+        /// </remarks>
+        Task UpkeepAsync(CancellationToken cancel = default);
     }
 
     /// <summary>

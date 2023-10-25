@@ -80,7 +80,7 @@ namespace Lokad.AzureEventStore.Wrapper
 
         /// <summary>
         ///     The number of events to be passed to the projection before
-        ///     attempting a save/load cycle of the projection.
+        ///     performing upkeep operations like attempting a save/load cycle of the projection.
         /// </summary>
         /// <remarks>
         ///     Due to performance considerations, this number may be slightly 
@@ -95,7 +95,7 @@ namespace Lokad.AzureEventStore.Wrapper
         ///     event count is reset to zero. This means that this limit is 
         ///     really only expected to be hit during the initial catch-up.
         /// </remarks>
-        public uint EventsBetweenCacheSaves { get; set; } = uint.MaxValue;
+        public uint EventsBetweenUpkeepOpportunities  { get; set; } = uint.MaxValue;
 
         /// <summary>
         ///     Waits for the next time that the system catches up to the last event 
@@ -146,6 +146,7 @@ namespace Lokad.AzureEventStore.Wrapper
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
             await CatchUpAsync(cancel).ConfigureAwait(false);
+
             log?.Info("[ES init] DONE !");
         }
 
@@ -267,10 +268,11 @@ namespace Lokad.AzureEventStore.Wrapper
         public async Task CatchUpAsync(CancellationToken cancel = default)
         {
             Func<bool> finishFetch;
+            Stopwatch sw;
 
             // Local variable, to avoid reaching the limit when not doing the
             // initial catch-up.
-            var eventsSinceLastCacheLoad = 0u;
+            var eventsSinceLastUpkeep = 0u;
             do
             {
                 var fetchTask = Stream.BackgroundFetchAsync(cancel);
@@ -281,14 +283,14 @@ namespace Lokad.AzureEventStore.Wrapper
                 // when fetching events takes longer than processing them,
                 // and remains safe (i.e. no runaway memory usage) when 
                 // the reverse is true.
-                eventsSinceLastCacheLoad += CatchUpLocal(cancel);
+                eventsSinceLastUpkeep += CatchUpLocal(cancel);
 
                 // Maybe we have reached the event count limit before our 
                 // save/load cycle ?
-                if (eventsSinceLastCacheLoad >= EventsBetweenCacheSaves)
+                if (eventsSinceLastUpkeep >= EventsBetweenUpkeepOpportunities)
                 {
-                    eventsSinceLastCacheLoad = 0;
-                    var sw = Stopwatch.StartNew();
+                    eventsSinceLastUpkeep = 0;
+                    sw = Stopwatch.StartNew();
                     if (await _projection.TrySaveAsync(cancel))
                     {
                         // Reset first, to release any used memory.
@@ -302,6 +304,12 @@ namespace Lokad.AzureEventStore.Wrapper
 
                         _log?.Info($"[ES read] cache save/load cycle in {sw.Elapsed} at seq {_projection.Sequence}.");
                     }
+                    else
+                    {
+                        await _projection.UpkeepAsync(cancel);
+                        _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
+                    }
+
                 }
 
                 finishFetch = await fetchTask;
@@ -310,6 +318,9 @@ namespace Lokad.AzureEventStore.Wrapper
 
             // We reach this point if 1° all events cached in the stream have
             // been processed and 2° the fetch operation returned no new events
+            sw = Stopwatch.StartNew();
+            await _projection.UpkeepAsync(cancel);
+            _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
 
             NotifyRefresh();
         }

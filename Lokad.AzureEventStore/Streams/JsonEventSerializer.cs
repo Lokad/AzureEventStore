@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using Lokad.AzureEventStore.Exceptions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -107,7 +108,14 @@ namespace Lokad.AzureEventStore.Streams
         public TEvent Deserialize(ReadOnlyMemory<byte> data)
         {
             var json = _encoding.GetString(data.Span);
-            return Deserialize(json);
+            try
+            {
+                return Deserialize(json);
+            }
+            catch (Exception ex)
+            {
+                throw new EventDeserializationException(json, ex);
+            }
         }
 
         /// <summary> Serialize an event, adding type information to its field "Type". </summary>

@@ -160,7 +160,7 @@ namespace Lokad.AzureEventStore.Streams
 
             var next = _cache.Dequeue();
             Sequence = next.Sequence;
-
+            
             return _serializer.Deserialize(next.Contents);
         }
 
