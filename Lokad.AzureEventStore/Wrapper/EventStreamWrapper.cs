@@ -135,6 +135,11 @@ namespace Lokad.AzureEventStore.Wrapper
         public uint Sequence => Stream.Sequence;
 
         /// <summary>
+        ///    This task completed when <see cref="InitializeAsync(CancellationToken)"/> finished.
+        /// </summary>
+        private Task _ready { get; set; }
+
+        /// <summary>
         /// Reads up events up to the last one available. Pre-loads the projection from its cache,
         /// if available, to reduce the necessary work.
         /// </summary>
@@ -145,8 +150,8 @@ namespace Lokad.AzureEventStore.Wrapper
 
             // Start reading everything
             log?.Info("[ES init] catching up with stream.");
-            await CatchUpAsync(cancel).ConfigureAwait(false);
-
+            _ready = Task.Run(() => CatchUpAsync(cancel), cancel);
+            await _ready;
             log?.Info("[ES init] DONE !");
         }
 
@@ -287,7 +292,7 @@ namespace Lokad.AzureEventStore.Wrapper
 
                 // Maybe we have reached the event count limit before our 
                 // save/load cycle ?
-                if (eventsSinceLastUpkeep >= EventsBetweenUpkeepOpportunities)
+                if (!_ready.IsCompleted && eventsSinceLastUpkeep >= EventsBetweenUpkeepOpportunities)
                 {
                     eventsSinceLastUpkeep = 0;
                     sw = Stopwatch.StartNew();
@@ -318,9 +323,12 @@ namespace Lokad.AzureEventStore.Wrapper
 
             // We reach this point if 1° all events cached in the stream have
             // been processed and 2° the fetch operation returned no new events
-            sw = Stopwatch.StartNew();
-            await _projection.UpkeepAsync(cancel);
-            _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
+            if (!_ready.IsCompleted)
+            {
+                sw = Stopwatch.StartNew();
+                await _projection.UpkeepAsync(cancel);
+                _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
+            }            
 
             NotifyRefresh();
         }
