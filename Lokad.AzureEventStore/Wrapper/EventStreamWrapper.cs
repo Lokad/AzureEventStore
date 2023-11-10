@@ -314,7 +314,6 @@ namespace Lokad.AzureEventStore.Wrapper
                         await _projection.UpkeepAsync(cancel);
                         _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
                     }
-
                 }
 
                 finishFetch = await fetchTask;

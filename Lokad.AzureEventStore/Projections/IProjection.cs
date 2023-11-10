@@ -51,7 +51,7 @@ namespace Lokad.AzureEventStore.Projections
         /// <returns> null if loading was unsuccessful. </returns>
         Task<TState> TryLoadAsync(Stream source, CancellationToken cancel);
 
-        /// <summary> Attempt to load an external state. </summary>
+        /// <summary> Attempt to load an external state with <paramref name="stateCreationContext"/>. </summary>
         /// <returns> null if loading was unsuccessful. </returns>
         Task<RestoredState<TState>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default);
 
@@ -81,7 +81,7 @@ namespace Lokad.AzureEventStore.Projections
         ///     maybe called several times depending on unspecified factors, such as the
         ///     number of processed events. 
         /// </remarks>
-        Task<TState> UpkeepAsync(TState state, CancellationToken cancel = default);
+        Task<TState> UpkeepAsync(StateUpkeepContext stateUpkeepContext, TState state, CancellationToken cancel = default);
     }
 
     /// <summary>

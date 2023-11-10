@@ -1,4 +1,5 @@
 ﻿#nullable enable
+using Lokad.AzureEventStore.Projections;
 using System.IO;
 
 namespace Lokad.AzureEventStore
@@ -21,12 +22,12 @@ namespace Lokad.AzureEventStore
             _externalStateFolderPath = externalStateFolderPath;
         }
 
-        internal StateCreationContext GetStateCreationContext(string? name)
+        internal StateCreationContext GetStateCreationContext(string? name, IProjectionCacheProvider cacheProvider)
         {
             if (_externalStateFolderPath == null)
-                return new StateCreationContext(null);
+                return new StateCreationContext(null, cacheProvider);
 
-            return new StateCreationContext(Path.Combine(_externalStateFolderPath, name));
+            return new StateCreationContext(Path.Combine(_externalStateFolderPath, name), cacheProvider);
         }
     }
 }

@@ -67,7 +67,7 @@ namespace Lokad.AzureEventStore.Projections
             _log = log;
 
             _log?.Debug("Using projection: " + Name);
-            _stateCreationContext = storageProvider.GetStateCreationContext(Name);
+            _stateCreationContext = storageProvider.GetStateCreationContext(Name, _cacheProvider);
              _possiblyInconsistent = false;
              Sequence = 0U;
             _disposable = null;
@@ -92,7 +92,7 @@ namespace Lokad.AzureEventStore.Projections
                 return;
             }
 
-            if (!(await TryLoadAsync(cancel)))
+            if (!await TryLoadAsync(cancel))
                 Reset();
         }
 
@@ -427,7 +427,7 @@ namespace Lokad.AzureEventStore.Projections
         /// </remarks>
         public async Task UpkeepAsync(CancellationToken cancel = default)
         {
-            var candidate = await _projection.UpkeepAsync(Current, cancel);
+            var candidate = await _projection.UpkeepAsync(new StateUpkeepContext(_cacheProvider), Current, cancel);
             if (candidate != null)
                 Current = candidate;
         }

@@ -1,4 +1,6 @@
 ﻿#nullable enable
+using Lokad.AzureEventStore.Projections;
+
 namespace Lokad.AzureEventStore
 {
     /// <summary>
@@ -7,11 +9,14 @@ namespace Lokad.AzureEventStore
     public class StateCreationContext
     {
         /// <summary> External state folder path. </summary>
-        public string? ExternalStateFolderPath { get; set; }
+        public string? ExternalStateFolderPath { get; }
 
-        public StateCreationContext(string? externalStateFolderPath)
+        public IProjectionCacheProvider CacheProvider { get; }
+
+        public StateCreationContext(string? externalStateFolderPath, IProjectionCacheProvider cacheProvider)
         {
             ExternalStateFolderPath = externalStateFolderPath;
+            CacheProvider = cacheProvider;
         }
     }
 }
