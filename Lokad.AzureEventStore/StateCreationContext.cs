@@ -11,9 +11,9 @@ namespace Lokad.AzureEventStore
         /// <summary> External state folder path. </summary>
         public string? ExternalStateFolderPath { get; }
 
-        public IProjectionCacheProvider CacheProvider { get; }
+        public IProjectionCacheProvider? CacheProvider { get; }
 
-        public StateCreationContext(string? externalStateFolderPath, IProjectionCacheProvider cacheProvider)
+        public StateCreationContext(string? externalStateFolderPath, IProjectionCacheProvider? cacheProvider)
         {
             ExternalStateFolderPath = externalStateFolderPath;
             CacheProvider = cacheProvider;

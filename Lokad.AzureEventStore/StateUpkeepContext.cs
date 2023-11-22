@@ -1,4 +1,5 @@
-﻿using Lokad.AzureEventStore.Projections;
+﻿#nullable enable
+using Lokad.AzureEventStore.Projections;
 
 namespace Lokad.AzureEventStore
 {
@@ -7,9 +8,9 @@ namespace Lokad.AzureEventStore
     /// </summary>
     public class StateUpkeepContext
     {
-        public IProjectionCacheProvider CacheProvider { get; }
+        public IProjectionCacheProvider? CacheProvider { get; }
 
-        public StateUpkeepContext(IProjectionCacheProvider cacheProvider)
+        public StateUpkeepContext(IProjectionCacheProvider? cacheProvider)
         {
             CacheProvider = cacheProvider;
         }
