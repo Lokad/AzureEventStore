@@ -104,13 +104,12 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </summary>
         public Task WaitForState()
         {
-            if (_waitForState == null)
-            {
-                _waitForState = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-            }
-
-            return _waitForState.Task;
+            // Since WaitForState() can be called from multiple threads, we need to 
+            // ensure that we don't overwrite _waitForState if there's already a task
+            // there (since that task would then never be overwritten).
+            var newTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var oldTask = Interlocked.CompareExchange(ref _waitForState, newTask, null);
+            return (oldTask ?? newTask).Task;
         }
 
         /// <summary>
@@ -119,11 +118,7 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </summary>
         private void NotifyRefresh()
         {
-            if (_waitForState != null)
-            {
-                _waitForState.TrySetResult(true);
-                _waitForState = null;
-            }
+            Interlocked.Exchange(ref _waitForState, null)?.TrySetResult(true);
         }
 
         /// <summary> The current state. </summary>
@@ -145,14 +140,23 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </summary>
         public async Task InitializeAsync(CancellationToken cancel = default)
         {
-            var log = _log?.Timestamped();
-            await Catchup(_projection, Stream, cancel);
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.Initialize");
 
-            // Start reading everything
-            log?.Info("[ES init] catching up with stream.");
-            _ready = Task.Run(() => CatchUpAsync(cancel), cancel);
-            await _ready;
-            log?.Info("[ES init] DONE !");
+            var log = _log?.Timestamped();
+
+            using (var act1 = Logging.Stream.StartActivity("EventStreamWrapper.Initialize.Load"))
+            {
+                await Catchup(_projection, Stream, cancel);
+            }
+
+            using (var act2 = Logging.Stream.StartActivity("EventStreamWrapper.Initialize.CatchUp"))
+            {
+                // Start reading everything
+                log?.Info("[ES init] catching up with stream.");
+                _ready = Task.Run(() => CatchUpAsync(cancel), cancel);
+                await _ready;
+                log?.Info("[ES init] DONE !");
+            }
         }
 
         internal static async Task Catchup(
@@ -294,10 +298,15 @@ namespace Lokad.AzureEventStore.Wrapper
                 // save/load cycle ?
                 if (!_ready.IsCompleted && eventsSinceLastUpkeep >= EventsBetweenUpkeepOpportunities)
                 {
+                    using var act = Logging.Stream.StartActivity("EventStreamWrapper.Upkeep");
+                    act?.SetTag(Logging.SeqProjection, _projection.Sequence);
+
                     eventsSinceLastUpkeep = 0;
                     sw = Stopwatch.StartNew();
                     if (await _projection.TrySaveAsync(cancel))
                     {
+                        act?.SetTag(Logging.UpkeepKind, "save-load");
+
                         // Reset first, to release any used memory.
                         _projection.Reset();
 
@@ -311,6 +320,8 @@ namespace Lokad.AzureEventStore.Wrapper
                     }
                     else
                     {
+                        act?.SetTag(Logging.UpkeepKind, "upkeep");
+
                         await _projection.UpkeepAsync(cancel);
                         _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
                     }
@@ -324,6 +335,10 @@ namespace Lokad.AzureEventStore.Wrapper
             // been processed and 2° the fetch operation returned no new events
             if (!_ready.IsCompleted)
             {
+                using var act = Logging.Stream.StartActivity("EventStreamWrapper.Upkeep");
+                act?.SetTag(Logging.UpkeepKind, "initial")
+                    .SetTag(Logging.SeqProjection, _projection.Sequence);
+
                 sw = Stopwatch.StartNew();
                 await _projection.UpkeepAsync(cancel);
                 _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
@@ -343,19 +358,30 @@ namespace Lokad.AzureEventStore.Wrapper
             CancellationToken cancel = default)
         {
             var thrownByBuilder = false;
+            var attempts = 0;
 
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.AppendEventsAsync");
+            
             try
             {
                 while (true)
                 {
+                    ++attempts;
+                    act?.SetTag(Logging.Attempts, attempts);
+
                     thrownByBuilder = true;
                     var tuple = builder(Current);
                     thrownByBuilder = false;
 
                     // No events to append, just return result
                     if (tuple.Events == null || tuple.Events.Count == 0)
+                    {
+                        act?.SetTag(Logging.EventCount, 0);
                         return new AppendResult<T>(0, 0, tuple.Result);
-                    
+                    }
+
+                    act?.SetTag(Logging.EventCount, tuple.Events.Count);
+
                     // Check for corrupted events. If even one event is corrupted, then events are not appended.
                     CheckEvents(tuple.Events);
 
@@ -410,12 +436,18 @@ namespace Lokad.AzureEventStore.Wrapper
             CancellationToken cancel = default)
         {
             var thrownByBuilder = false;
+            var attempts = 0;
+
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
 
             Transaction<TEvent, TState> transaction = null;
             try
             {
                 while (true)
                 {
+                    ++attempts;
+                    act?.AddTag(Logging.Attempts, attempts);
+
                     transaction = new Transaction<TEvent, TState>(_projection.Clone());
 
                     thrownByBuilder = true;
@@ -423,6 +455,8 @@ namespace Lokad.AzureEventStore.Wrapper
                     thrownByBuilder = false;
 
                     var events = transaction.Events;
+
+                    act?.SetTag(Logging.EventCount, events.Length);
 
                     // No events to append, just return result
                     if (events.Length == 0)
@@ -487,13 +521,18 @@ namespace Lokad.AzureEventStore.Wrapper
             CancellationToken cancel = default)
         {
             var thrownByBuilder = false;
+            var attempts = 0;
+
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
 
             Transaction<TEvent, TState> transaction = null;
-
             try
             {
                 while (true)
                 {
+                    ++attempts;
+                    act?.AddTag(Logging.Attempts, attempts);
+
                     transaction = new Transaction<TEvent, TState>(_projection.Clone());
 
                     thrownByBuilder = true;
@@ -501,6 +540,8 @@ namespace Lokad.AzureEventStore.Wrapper
                     thrownByBuilder = false;
 
                     var events = transaction.Events;
+
+                    act?.SetTag(Logging.EventCount, events.Length);
 
                     // No events to append
                     if (events.Length == 0)

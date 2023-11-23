@@ -193,6 +193,10 @@ namespace Lokad.AzureEventStore.Streams
         /// <see cref="IEventStream.DiscardUpTo"/>
         public async Task<uint> DiscardUpTo(uint sequence, CancellationToken cancel = default)
         {
+            using var act = Logging.Stream.StartActivity("EventStream.DiscardUpTo");
+            act?.AddTag("seq.stream", Sequence)
+                .AddTag("seq.to", sequence);
+
             // First, try to seek forward to skip over many events at once
             var skip = await Storage.SeekAsync(sequence, 0, cancel);
             if (skip > Position) Position = skip;

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -162,13 +163,22 @@ namespace Lokad.AzureEventStore.Drivers
             IEnumerable<RawEvent> events,
             CancellationToken cancel = default)
         {
+            using var act = Logging.Drivers.StartActivity("AzureStorageDriver.WriteAsync");
+            act?.SetTag(Logging.PositionWrite, position)
+                .SetTag(Logging.PositionStream, _lastKnownPosition);
+
             // Caller knows something we don't? Refresh!
             if (position > _lastKnownPosition)
                 _lastKnownPosition = await RefreshCache(cancel);
 
+            act?.SetTag(Logging.PositionStream, _lastKnownPosition);
+
             // Quick early-out with no Azure request involved.
             if (position < _lastKnownPosition)
+            {
+                act?.SetStatus(ActivityStatusCode.Error, "Conflict");
                 return new DriverWriteResult(_lastKnownPosition, false);
+            }
 
             // This should only happen very rarely, but it still needs to be done.
             if (_blobs.Count == 0) await CreateLastBlob(cancel);
@@ -177,16 +187,22 @@ namespace Lokad.AzureEventStore.Drivers
 
             var payload = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
             var payloadLength = 0;
+            var eventCount = 0;
             try
             {
                 foreach (var e in events)
                 {
+                    eventCount++;
                     payloadLength += EventFormat.Write(payload.AsMemory(payloadLength), e);
                 }
+
+                act?.SetTag(Logging.EventCount, eventCount)
+                    .SetTag(Logging.EventSize, payloadLength);
 
                 // Nothing to write, but still check position
                 if (payloadLength == 0)
                 {
+                    act?.SetStatus(ActivityStatusCode.Ok);
                     _lastKnownPosition = await RefreshCache(cancel);
                     return new DriverWriteResult(_lastKnownPosition, position == _lastKnownPosition);
                 }
@@ -201,6 +217,7 @@ namespace Lokad.AzureEventStore.Drivers
 
                     _lastKnownPosition = position + payloadLength;
 
+                    act?.SetStatus(ActivityStatusCode.Ok);
                     return new DriverWriteResult(_lastKnownPosition, true);
                 }
                 catch (RequestFailedException e)
@@ -213,7 +230,14 @@ namespace Lokad.AzureEventStore.Drivers
                 // Collision means we do not have the proper _lastKnownPosition, so refresh
                 // the cache and return a failure.
                 if (collision)
-                    return new DriverWriteResult(await RefreshCache(cancel), false);
+                {
+                    _lastKnownPosition = await RefreshCache(cancel);
+                    
+                    act?.SetTag(Logging.PositionStream, _lastKnownPosition)
+                        .SetStatus(ActivityStatusCode.Error, "Collision");
+
+                    return new DriverWriteResult(_lastKnownPosition, false);
+                }
 
                 // Too many appends can be solved by creating a new blob and appending to it. 
                 // The append code is similar but subtly different, so we just rewrite it 
@@ -227,6 +251,7 @@ namespace Lokad.AzureEventStore.Drivers
 
                     _lastKnownPosition = position + payload.Length;
 
+                    act?.SetStatus(ActivityStatusCode.Ok);
                     return new DriverWriteResult(_lastKnownPosition, true);
                 }
                 catch (RequestFailedException e)
@@ -238,7 +263,13 @@ namespace Lokad.AzureEventStore.Drivers
 
                 // Collision here means someone else already created the new blob and appended
                 // to it, so refresh everything and report failure.
-                return new DriverWriteResult(await RefreshCache(cancel), false);
+
+                _lastKnownPosition = await RefreshCache(cancel);
+
+                act?.SetTag(Logging.PositionStream, _lastKnownPosition)
+                    .SetStatus(ActivityStatusCode.Error, "Collision");
+
+                return new DriverWriteResult(_lastKnownPosition, false);
             }
             finally
             {
@@ -251,6 +282,10 @@ namespace Lokad.AzureEventStore.Drivers
             Memory<byte> backing,
             CancellationToken cancel = default)
         {
+            using var act = Logging.Drivers.StartActivity("AzureStorageDriver.ReadAsync");
+            act?.SetTag(Logging.PositionRead, position)
+                .SetTag(Logging.PositionStream, _lastKnownPosition);
+
             // STEP 1: PRELIMINARY CHECKS
             // ==========================
 
@@ -296,7 +331,12 @@ namespace Lokad.AzureEventStore.Drivers
             backing = backing[..maxBytes];
 
             if (maxBytes == 0)
-                return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
+            {
+                act?.SetTag(Logging.EventCount, 0)
+                    .SetTag(Logging.EventSize, 0);
+
+                return new DriverReadResult(_lastKnownPosition, Array.Empty<RawEvent>());
+            }
 
             var readBytes = await ReadRangeAsync(blob, startPos, backing, cancel);
             backing = backing[..readBytes];
@@ -319,6 +359,9 @@ namespace Lokad.AzureEventStore.Drivers
             {
                 throw new InvalidDataException($"{e.Message} at {position + parsedBytes}");
             }
+
+            act?.SetTag(Logging.EventCount, events.Count)
+                .SetTag(Logging.EventSize, parsedBytes);
 
             return new DriverReadResult(position + parsedBytes, events);
         }
@@ -451,6 +494,8 @@ namespace Lokad.AzureEventStore.Drivers
 
             RunningCompaction = Task.Run(async () =>
             {
+                using var act = Logging.Drivers.StartActivity("AzureStorageDriver.RunningCompaction");
+
                 // This function assumes that the container is writable. If it isn't, the
                 // write operations will throw and execution stops silently.
                 //
@@ -465,6 +510,8 @@ namespace Lokad.AzureEventStore.Drivers
 
                 var blobName = blobs[^1].AppendBlob.Name + AzureHelpers.CompactSuffix;
 
+                act?.AddTag("blob", blobName);
+
                 var compactBlob = _container.GetBlockBlobClient(blobName);
 
                 // Building a block blob: write out several 4MB blocks which will
@@ -472,6 +519,7 @@ namespace Lokad.AzureEventStore.Drivers
                 var blocks = new List<string>();
                 var buffer = new byte[4 * 1024 * 1024];
                 var used = 0;
+                var totalWritten = 0L;
 
                 Task WriteBlockAsync()
                 {
@@ -487,6 +535,8 @@ namespace Lokad.AzureEventStore.Drivers
                 {
                     var blobOffset = 0L;
                     var blobLength = blob.Bytes;
+
+                    totalWritten += blobLength;
 
                     while (blobOffset < blobLength)
                     {
@@ -512,6 +562,9 @@ namespace Lokad.AzureEventStore.Drivers
 
                 // Commit the list of blocks in one call.
                 await compactBlob.CommitBlockListAsync(blocks);
+
+                act?.AddTag("blob.blocks", blocks.Count)
+                    .AddTag("blob.size", totalWritten);
             });
         }
     }
