@@ -82,9 +82,6 @@ namespace Lokad.AzureEventStore.Streams
 
     public static class Extensions
     {
-
-#if NETSTANDARD2_1
-
         /// <summary>
         ///     Enumerates all remaining events in the stream, as an async-enumerable.
         ///     Stops when the end of the stream is reached.
@@ -105,7 +102,6 @@ namespace Lokad.AzureEventStore.Streams
             }
             while (more());
         }
-#endif
 
         /// <summary>
         /// Attempts to fetch events from the remote stream, making them available to
