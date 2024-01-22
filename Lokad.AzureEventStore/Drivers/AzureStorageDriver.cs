@@ -249,7 +249,7 @@ namespace Lokad.AzureEventStore.Drivers
                     var lastBlob = _blobs[^1].GetAppendBlobClient();
                     await lastBlob.AppendTransactionalAsync(payload, payloadLength, 0, cancel);
 
-                    _lastKnownPosition = position + payload.Length;
+                    _lastKnownPosition = position + payloadLength;
 
                     act?.SetStatus(ActivityStatusCode.Ok);
                     return new DriverWriteResult(_lastKnownPosition, true);
