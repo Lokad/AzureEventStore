@@ -277,7 +277,6 @@ namespace Lokad.AzureEventStore.Wrapper
         public async Task CatchUpAsync(CancellationToken cancel = default)
         {
             Func<bool> finishFetch;
-            Stopwatch sw;
 
             // Local variable, to avoid reaching the limit when not doing the
             // initial catch-up.
@@ -298,33 +297,10 @@ namespace Lokad.AzureEventStore.Wrapper
                 // save/load cycle ?
                 if (!_ready.IsCompleted && eventsSinceLastUpkeep >= EventsBetweenUpkeepOpportunities)
                 {
+                    eventsSinceLastUpkeep = 0;
                     using var act = Logging.Stream.StartActivity("EventStreamWrapper.Upkeep");
                     act?.SetTag(Logging.SeqProjection, _projection.Sequence);
-
-                    eventsSinceLastUpkeep = 0;
-                    sw = Stopwatch.StartNew();
-                    if (await _projection.TrySaveAsync(cancel))
-                    {
-                        act?.SetTag(Logging.UpkeepKind, "save-load");
-
-                        // Reset first, to release any used memory.
-                        _projection.Reset();
-
-                        await _projection.TryLoadAsync(cancel);
-                        
-                        if (_projection.Sequence != Stream.Sequence)
-                            throw new InvalidOperationException(
-                                "Projection Save/Load cycle failed to restore sequence.");
-
-                        _log?.Info($"[ES read] cache save/load cycle in {sw.Elapsed} at seq {_projection.Sequence}.");
-                    }
-                    else
-                    {
-                        act?.SetTag(Logging.UpkeepKind, "upkeep");
-
-                        await _projection.UpkeepAsync(cancel);
-                        _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
-                    }
+                    await _projection.UpkeepOrSaveLoadAsync(Stream.Sequence, cancel);
                 }
 
                 finishFetch = await fetchTask;
@@ -339,7 +315,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 act?.SetTag(Logging.UpkeepKind, "initial")
                     .SetTag(Logging.SeqProjection, _projection.Sequence);
 
-                sw = Stopwatch.StartNew();
+                Stopwatch sw = Stopwatch.StartNew();
                 await _projection.UpkeepAsync(cancel);
                 _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
             }            

@@ -271,6 +271,11 @@ namespace Lokad.AzureEventStore.Projections
             await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepAsync(cancel)));
         }
 
+        public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
+        {
+            await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepOrSaveLoadAsync(seq, cancel)));
+        }
+
         /// <summary> Construct the state from the sub-projections. </summary>
         private readonly Func<IReifiedProjection<TEvent>[], TState> _refresh;
 

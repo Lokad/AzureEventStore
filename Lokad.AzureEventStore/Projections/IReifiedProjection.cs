@@ -70,6 +70,12 @@ namespace Lokad.AzureEventStore.Projections
         ///     number of processed events. 
         /// </remarks>
         Task UpkeepAsync(CancellationToken cancel = default);
+
+        /// <summary>
+        ///     Perform the save/load cycle or upkeep operations on the state
+        ///     depend on how the projection is initialized.
+        /// </summary>
+        Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default);
     }
 
     /// <summary>

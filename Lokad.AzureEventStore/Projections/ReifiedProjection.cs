@@ -431,5 +431,36 @@ namespace Lokad.AzureEventStore.Projections
             if (candidate != null)
                 Current = candidate;
         }
+
+        /// <summary>
+        ///     Perform the save/load cycle or upkeep operations on the state
+        ///     depend on how the projection is initialized.
+        /// </summary>
+        public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            if (await TrySaveAsync(cancel))
+            {
+                Activity.Current?.SetTag(Logging.UpkeepKind, "save-load");
+
+                // Reset first, to release any used memory.
+                Reset();
+
+                await TryLoadAsync(cancel);
+                        
+                if (Sequence != seq)
+                    throw new InvalidOperationException(
+                        "Projection Save/Load cycle failed to restore sequence.");
+
+                _log?.Info($"[{Name}] cache save/load cycle in {sw.Elapsed} at seq {Sequence}.");
+            }
+            else
+            {
+                Activity.Current?.SetTag(Logging.UpkeepKind, "upkeep");
+
+                await UpkeepAsync(cancel);
+                _log?.Info($"[{Name}] upkeep operations done in {sw.Elapsed} at seq {Sequence}.");
+            }
+        }
     }
 }
