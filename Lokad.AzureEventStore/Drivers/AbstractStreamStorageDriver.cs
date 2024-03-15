@@ -47,6 +47,7 @@ namespace Lokad.AzureEventStore.Drivers
                     }
 
                     _file.Write(payload, 0, payloadLength);
+                    _file.Flush();
                 }
                 finally
                 {
