@@ -181,21 +181,6 @@ namespace Lokad.AzureEventStore.Drivers
             return container.GetAppendBlobClient(NthBlobName(nth));
         }
 
-        /// <summary> Creates the blob if it does not exist. Do nothing if it already does.  </summary>
-        public static async Task CreateIfNotExistsAsync(
-            this AppendBlobClient blob,
-            CancellationToken cancel = default)
-        {
-            try
-            {
-                await blob.CreateAsync(new AppendBlobCreateOptions(), cancel);
-            }
-            catch (RequestFailedException e)
-            {
-                if (e.ErrorCode != "BlobAlreadyExists") throw;
-            }
-        }
-
         /// <summary> True if the exception denotes a "append position is too early" situation. </summary>
         public static bool IsCollision(this RequestFailedException e)
         {

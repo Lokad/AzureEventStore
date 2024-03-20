@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 
 namespace Lokad.AzureEventStore.Drivers
@@ -153,7 +154,7 @@ namespace Lokad.AzureEventStore.Drivers
             var nth = _blobs.Count == 0 ? 0 : _blobs[^1].Nth + 1;
             var blob = _container.ReferenceEventBlob(nth);
 
-            await blob.CreateIfNotExistsAsync(cancel);
+            await blob.CreateIfNotExistsAsync(new AppendBlobCreateOptions(), cancel);
 
             await RefreshCache(cancel);
         }
