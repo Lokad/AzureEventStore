@@ -146,7 +146,7 @@ namespace Lokad.AzureEventStore.Wrapper
 
             using (var act1 = Logging.Stream.StartActivity("EventStreamWrapper.Initialize.Load"))
             {
-                await Catchup(_projection, Stream, cancel);
+                await Catchup(_projection, Stream, cancel, log);
             }
 
             using (var act2 = Logging.Stream.StartActivity("EventStreamWrapper.Initialize.CatchUp"))
