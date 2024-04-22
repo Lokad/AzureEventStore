@@ -1,4 +1,5 @@
-﻿using Azure.Storage.Blobs;
+﻿using Azure;
+using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using System;
@@ -63,7 +64,9 @@ namespace Lokad.AzureEventStore.Drivers
         ///     Used by <see cref="GetFirstKeyAsync(CancellationToken)"/> to cache
         ///     its result in the metadata.
         /// </summary>
-        private const string FirstKeyMetadata = "FirstKey";
+        private const string _firstKeyMetadata = "FirstKey";
+
+        private const string _cacheErrorCode = "AuthorizationPermissionMismatch";
 
         /// <summary>
         ///     The key of the first event in this blob. Will cache the value in
@@ -71,7 +74,7 @@ namespace Lokad.AzureEventStore.Drivers
         /// </summary>
         public async Task<uint> GetFirstKeyAsync(CancellationToken cancel)
         {
-            if (AppendBlob.Metadata.TryGetValue(FirstKeyMetadata, out var str) &&
+            if (AppendBlob.Metadata.TryGetValue(_firstKeyMetadata, out var str) &&
                 uint.TryParse(str, out var key))
             {
                 return key;
@@ -86,14 +89,17 @@ namespace Lokad.AzureEventStore.Drivers
                   + ((uint)buffer[2] << 16)
                   + ((uint)buffer[3] << 24);
 
-            // Cache the key so that subsequent reads find it faster
-
+            // Trying to cache the key so that subsequent reads find it faster
+            // Catch when we don't have permission to do so.
             var appendClient = _container.GetBlobClient(AppendBlob.Name);
-
-            await appendClient.SetMetadataAsync(new Dictionary<string, string>
+            try
             {
-                { FirstKeyMetadata, key.ToString(CultureInfo.InvariantCulture) }
-            });
+                await appendClient.SetMetadataAsync(new Dictionary<string, string>
+                {
+                    { _firstKeyMetadata, key.ToString(CultureInfo.InvariantCulture) }
+                });
+            }
+            catch (RequestFailedException rfe) when (rfe.ErrorCode == _cacheErrorCode) { }            
 
             return key;
         }
