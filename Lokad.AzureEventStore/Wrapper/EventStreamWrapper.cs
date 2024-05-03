@@ -391,177 +391,97 @@ namespace Lokad.AzureEventStore.Wrapper
             }
         }
 
-        /// <summary> Run a transaction on the stream. </summary>
-        /// <remarks> 
-        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
-        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
-        ///     to access the state (initially, will be the current state, but after 
-        ///     events are appended to the transaction, the transaction state will reflect
-        ///     those events as well).
-        ///     
-        ///     If the callback does not throw, the events are appended to the stream. 
-        ///     If the stream has been modified in the mean time, then the callback will
-        ///     be replayed with the new up-to-date state. 
-        /// </remarks>
+        /// <summary>
+        ///     After applying the callback to the transaction, try to write the generated
+        ///     events to the stream.
+        /// </summary>
         /// <returns>
-        ///     The value returned by the callback, along with details about how many events
-        ///     were written and up to which sequence. 
+        ///     A <see cref="TransactionResult{T}"/> that contains an <see cref="AppendResult{T}"/>
+        ///     and if the append succeeded or not.
         /// </returns>
-        public async Task<AppendResult<T>> TransactionAsync<T>(
-            Func<Transaction<TEvent, TState>, T> builder,
+        public async Task<TransactionResult<T>> TryCommitTransactionAsync<T>(
+            Transaction<TEvent, TState> transaction, 
+            T result,
+            uint sequence,
             CancellationToken cancel = default)
         {
-            var thrownByBuilder = false;
-            var attempts = 0;
+            // Re-start the transaction if the event stream was advanced.
+            if (sequence != Sequence)
+                return new TransactionResult<T>(null, false);
 
-            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
-
-            Transaction<TEvent, TState> transaction = null;
-            try
+            var events = transaction.Events;
+            // No events to append, just return result
+            if (events.Length == 0)
             {
-                while (true)
-                {
-                    ++attempts;
-                    act?.AddTag(Logging.Attempts, attempts);
-
-                    transaction = new Transaction<TEvent, TState>(_projection.Clone());
-
-                    thrownByBuilder = true;
-                    var result = builder(transaction);
-                    thrownByBuilder = false;
-
-                    var events = transaction.Events;
-
-                    act?.SetTag(Logging.EventCount, events.Length);
-
-                    // No events to append, just return result
-                    if (events.Length == 0)
-                    {
-                        transaction.HandleCommit();
-                        return new AppendResult<T>(0, 0, result);
-                    }
-
-                    // No need to check for corrupted events, since the transaction
-                    // automatically applies them on the fly.
-
-                    // Append the events                
-                    var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
-
-                    if (done == null)
-                    {
-                        // Append failed. Catch up and try again.
-                        await CatchUpAsync(cancel).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        // Append succeeded. Catch up with locally available events (including those
-                        // that were just added), then return append information.
-                        CatchUpLocal(cancel);
-                        NotifyRefresh();
-                        transaction.HandleCommit();
-                        return new AppendResult<T>(events.Length, (uint)done, result);
-                    }
-                }
+                transaction.HandleCommit();
+                return new TransactionResult<T>(new AppendResult<T>(0, 0, result), true);
             }
-            catch (OperationCanceledException)
-            {
-                transaction?.HandleAbort();
 
-                throw;
+            // No need to check for corrupted events, since the transaction
+            // automatically applies them on the fly.
+
+            // Append the events                
+            var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
+
+            if (done == null)
+            {
+                // Append failed. Catch up and try again.
+                await CatchUpAsync(cancel).ConfigureAwait(false);
+                return new TransactionResult<T>(null, false);
             }
-            catch (Exception e)
+            else
             {
-                if (!thrownByBuilder)
-                    _log?.Error("While appending events", e);
-
-                transaction?.HandleAbort();
-
-                throw;
+                // Append succeeded. Catch up with locally available events (including those
+                // that were just added), then return append information.
+                CatchUpLocal(cancel);
+                NotifyRefresh();
+                transaction.HandleCommit();
+                return new TransactionResult<T>(new AppendResult<T>(events.Length, (uint)done, result), true);
             }
         }
 
-        /// <summary> Run a transaction on the stream. </summary>
-        /// <remarks> 
-        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
-        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
-        ///     to access the state (initially, will be the current state, but after 
-        ///     events are appended to the transaction, the transaction state will reflect
-        ///     those events as well).
-        ///     
-        ///     If the callback does not throw, the events are appended to the stream. 
-        ///     If the stream has been modified in the mean time, then the callback will
-        ///     be replayed with the new up-to-date state. 
-        /// </remarks>
-        public async Task<AppendResult> TransactionAsync(
-            Action<Transaction<TEvent, TState>> builder,
-            CancellationToken cancel = default)
+        /// <summary>
+        ///     After applying the callback to the transaction, try to write the generated
+        ///     events to the stream.
+        /// </summary>
+        /// <returns>
+        ///     A <see cref="TransactionResult"/> that contains an <see cref="AppendResult"/>
+        ///     and if the append succeeded or not.
+        /// </returns>
+        public async Task<TransactionResult> TryCommitTransactionAsync(Transaction<TEvent, TState> transaction, uint sequence, CancellationToken cancel = default)
         {
-            var thrownByBuilder = false;
-            var attempts = 0;
+            // Re-start the transaction if the event stream was advanced.
+            if (sequence != Sequence)
+                return new TransactionResult(null, false);
 
-            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
-
-            Transaction<TEvent, TState> transaction = null;
-            try
+            var events = transaction.Events;
+            // No events to append, just return result
+            if (events.Length == 0)
             {
-                while (true)
-                {
-                    ++attempts;
-                    act?.AddTag(Logging.Attempts, attempts);
-
-                    transaction = new Transaction<TEvent, TState>(_projection.Clone());
-
-                    thrownByBuilder = true;
-                    builder(transaction);
-                    thrownByBuilder = false;
-
-                    var events = transaction.Events;
-
-                    act?.SetTag(Logging.EventCount, events.Length);
-
-                    // No events to append
-                    if (events.Length == 0)
-                    {
-                        transaction.HandleCommit();
-                        return new AppendResult(0, 0);
-                    }
-
-                    // No need to check for corrupted events, since the transaction
-                    // automatically applies them on the fly.
-
-                    // Append the events                
-                    var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
-
-                    if (done == null)
-                    {
-                        // Append failed. Catch up and try again.
-                        await CatchUpAsync(cancel).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        // Append succeeded. Catch up with locally available events (including those
-                        // that were just added), then return append information.
-                        CatchUpLocal(cancel);
-                        NotifyRefresh();
-                        transaction.HandleCommit();
-                        return new AppendResult(events.Length, (uint)done);
-                    }
-                }
+                transaction.HandleCommit();
+                return new TransactionResult(new AppendResult(0, 0), true);
             }
-            catch (OperationCanceledException)
-            {
-                transaction?.HandleAbort();
 
-                throw;
+            // No need to check for corrupted events, since the transaction
+            // automatically applies them on the fly.
+
+            // Append the events                
+            var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
+
+            if (done == null)
+            {
+                // Append failed. Catch up and try again.
+                await CatchUpAsync(cancel).ConfigureAwait(false);
+                return new TransactionResult(null, false);
             }
-            catch (Exception e)
+            else
             {
-                if (!thrownByBuilder)
-                    _log?.Error("While appending events", e);
-
-                transaction?.HandleAbort();
-
-                throw;
+                // Append succeeded. Catch up with locally available events (including those
+                // that were just added), then return append information.
+                CatchUpLocal(cancel);
+                NotifyRefresh();
+                transaction.HandleCommit();
+                return new TransactionResult(new AppendResult(events.Length, (uint)done), true);
             }
         }
 
@@ -613,6 +533,12 @@ namespace Lokad.AzureEventStore.Wrapper
         {
             _projection.Reset();
             Stream.Reset();
+        }
+
+        /// <summary> Create an independent clone of this reified projection. </summary>
+        internal IReifiedProjection<TEvent, TState> GetProjectionClone()
+        {
+            return _projection.Clone();
         }
     }
 }

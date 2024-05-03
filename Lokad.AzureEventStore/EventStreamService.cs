@@ -59,6 +59,8 @@ namespace Lokad.AzureEventStore
 
         private readonly CancellationToken _cancel;
 
+        private readonly SemaphoreSlim _transactionSemaphore = new SemaphoreSlim(1);
+
         /// <summary> Initialize and start the service. </summary>
         /// <remarks> 
         /// This will start a background task that performs all processing
@@ -338,16 +340,69 @@ namespace Lokad.AzureEventStore
         ///     If the callback does not throw, the events are appended to the stream. 
         ///     If the stream has been modified in the mean time, then the callback will
         ///     be replayed with the new up-to-date state. 
+        ///     
+        ///     Wait a transaction to end before starting a new one as it would create conflicts
+        ///     when writing events.
         /// </remarks>
         /// <returns>
         ///     The value returned by the callback, along with details about how many events
         ///     were written and up to which sequence. 
         /// </returns>
-        public Task<AppendResult<T>> TransactionAsync<T>(
+        public async Task<AppendResult<T>> TransactionAsync<T>(
             Func<Transaction<TEvent, TState>, T> builder,
             CancellationToken cancel = default)
-        =>
-            EnqueueAction(c => Wrapper.TransactionAsync(builder, c), cancel);
+        {
+            await _transactionSemaphore.WaitAsync(cancel);
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
+
+            var thrownByBuilder = false;
+            var attempts = 0;
+            Transaction<TEvent, TState> transaction = null;
+            T result;
+            IReifiedProjection<TEvent, TState> projection = null;
+            uint cloneSequence;
+            
+            try
+            {
+                while (true)
+                {
+                    ++attempts;
+                    act?.AddTag(Logging.Attempts, attempts);
+
+                    projection = Wrapper.GetProjectionClone();
+                    cloneSequence = projection.Sequence;
+                    transaction = new Transaction<TEvent, TState>(projection);
+
+                    thrownByBuilder = true;
+                    result = builder(transaction);
+                    thrownByBuilder = false;
+
+                    var task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, result, cloneSequence, c), cancel);
+
+                    if (task.Success)
+                        return task.Result;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                transaction?.HandleAbort();
+
+                throw;
+            }
+            catch (Exception e)
+            {
+                if (!thrownByBuilder)
+                    _log?.Error("While appending events", e);
+
+                transaction?.HandleAbort();
+
+                throw;
+            }
+            finally
+            {
+                _transactionSemaphore.Release();
+            }
+        }
 
         /// <summary> Run a transaction on the stream. </summary>
         /// <remarks> 
@@ -360,12 +415,66 @@ namespace Lokad.AzureEventStore
         ///     If the callback does not throw, the events are appended to the stream. 
         ///     If the stream has been modified in the mean time, then the callback will
         ///     be replayed with the new up-to-date state. 
+        ///     
+        ///     Wait a transaction to end before starting a new one as it would create conflicts
+        ///     when writing events.
         /// </remarks>
-        public Task<AppendResult> TransactionAsync(
+        /// <returns>
+        ///     How many events were written and up to which sequence. 
+        /// </returns>
+        public async Task<AppendResult> TransactionAsync(
             Action<Transaction<TEvent, TState>> builder,
             CancellationToken cancel = default)
-        =>
-            EnqueueAction(c => Wrapper.TransactionAsync(builder, c), cancel);
+        {
+            await _transactionSemaphore.WaitAsync(cancel);
+            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
+
+            var thrownByBuilder = false;
+            var attempts = 0;
+            Transaction<TEvent, TState> transaction = null;
+            IReifiedProjection<TEvent, TState> projection = null;
+            uint cloneSequence;
+            try
+            {
+                while (true)
+                {
+                    ++attempts;
+                    act?.AddTag(Logging.Attempts, attempts);
+
+                    projection = Wrapper.GetProjectionClone();
+                    cloneSequence = projection.Sequence;
+                    transaction = new Transaction<TEvent, TState>(projection);
+
+                    thrownByBuilder = true;
+                    builder(transaction);
+                    thrownByBuilder = false;
+
+                    var task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, cloneSequence, c), cancel);
+
+                    if (task.Success)
+                        return task.Result;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                transaction?.HandleAbort();
+
+                throw;
+            }
+            catch (Exception e)
+            {
+                if (!thrownByBuilder)
+                    _log?.Error("While appending events", e);
+
+                transaction?.HandleAbort();
+
+                throw;
+            }
+            finally
+            {
+                _transactionSemaphore.Release();
+            }
+        }           
 
         /// <summary> Attempt to save the projection to the cache. </summary>
         public Task TrySaveAsync(CancellationToken cancel = default) =>

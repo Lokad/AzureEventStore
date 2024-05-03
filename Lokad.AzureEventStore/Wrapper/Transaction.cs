@@ -10,8 +10,10 @@ namespace Lokad.AzureEventStore.Wrapper
     ///     changes) are only applied if the transaction is not aborted, and no 
     ///     exception is thrown by the function operating the transaction.
     /// </summary>
-    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync{T}(Func{Transaction{TEvent, TState}, T}, System.Threading.CancellationToken)"/>
-    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync(Action{Transaction{TEvent, TState}}, System.Threading.CancellationToken)"/>
+    /// <see cref="EventStreamService{TEvent, TState}.TransactionAsync{T}(Func{Transaction{TEvent, TState}, T}, System.Threading.CancellationToken)"/>
+    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync{T}(Transaction{TEvent, TState}, T, System.Threading.CancellationToken)"/>
+    /// <see cref="EventStreamService{TEvent, TState}.TransactionAsync(Action{Transaction{TEvent, TState}}, System.Threading.CancellationToken)"/>
+    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync(Transaction{TEvent, TState}, System.Threading.CancellationToken)"/>
     public sealed class Transaction<TEvent, TState>
         where TState : class
         where TEvent : class
