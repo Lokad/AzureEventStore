@@ -465,7 +465,8 @@ namespace Lokad.AzureEventStore.Drivers
             // No need for any clever optimization: the number of blobs is small, and the time spent
             // traversing the list is tiny compared to the Azure request costs.
             for (var i = 1; i < _firstKey.Count; ++i)
-                if (_firstKey[i] > key)
+                // Stop before the event so that the previous event can be read.
+                if (_firstKey[i] >= key)
                     return Math.Max(position, _firstPosition[i - 1]);
 
             // None of the _firstKey were after the key we are looking for: if it exists, it
