@@ -41,6 +41,13 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Disposable handling the loaded external state. Null otherwise. </summary>
         private IDisposable _disposable { get; set; }
 
+        /// <summary> 
+        ///    True if changes have been applied to this projection since the last time 
+        ///    <see cref="TrySaveAsync"/>, <see cref="TryLoadAsync"/> or 
+        ///    <see cref="CreateAsync"/> has succeeded.
+        /// </summary>
+        private bool _hasUnsavedChanges;
+
         public ReifiedProjection(
             IProjection<TEvent, TState> projection, 
             StorageProvider storageProvider, 
@@ -71,6 +78,7 @@ namespace Lokad.AzureEventStore.Projections
              _possiblyInconsistent = false;
              Sequence = 0U;
             _disposable = null;
+            _hasUnsavedChanges = false;
         }
 
         /// <summary>
@@ -89,6 +97,7 @@ namespace Lokad.AzureEventStore.Projections
                 Sequence = restoredState.Sequence;
                 Current = restoredState.State;
                 _disposable = restoredState.Disposable;
+                _hasUnsavedChanges = false;
                 return;
             }
 
@@ -108,6 +117,7 @@ namespace Lokad.AzureEventStore.Projections
             Sequence = 0U;
             Current = _projection.Initial(_stateCreationContext);
             _possiblyInconsistent = false;
+            _hasUnsavedChanges = false;
 
             if (Current == null)
                 throw new InvalidOperationException("Projection initial state must not be null");
@@ -138,6 +148,7 @@ namespace Lokad.AzureEventStore.Projections
                 if (newState == null)
                     throw new InvalidOperationException("Event generated a null state.");
 
+                _hasUnsavedChanges = true;
                 Current = newState;
             }
             catch (Exception ex)
@@ -262,6 +273,7 @@ namespace Lokad.AzureEventStore.Projections
 
                     Current = state;
                     Sequence = seq;
+                    _hasUnsavedChanges = false;
                     return true;
 
                     // Do NOT set _possiblyInconsistent to false here ! 
@@ -360,6 +372,7 @@ namespace Lokad.AzureEventStore.Projections
                     _log?.Info($"[{Name}] saved {wrote} bytes to cache in {sw.Elapsed:mm':'ss'.'fff}.");
                 }
 
+                _hasUnsavedChanges = false;
                 return true;
             }
             catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") 
@@ -427,6 +440,12 @@ namespace Lokad.AzureEventStore.Projections
         /// </remarks>
         public async Task UpkeepAsync(CancellationToken cancel = default)
         {
+            if (_possiblyInconsistent)
+            {
+                _log?.Warning($"[{Name}] state is possibly inconsistent, skip upkeep.");
+                return;
+            }
+
             var candidate = await _projection.UpkeepAsync(new StateUpkeepContext(_cacheProvider), Current, cancel);
             if (candidate != null)
                 Current = candidate;
@@ -439,6 +458,18 @@ namespace Lokad.AzureEventStore.Projections
         public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
         {
             Stopwatch sw = Stopwatch.StartNew();
+            if (seq < Sequence)
+            {
+                _log?.Info($"[{Name}] is at seq {Sequence} and ahead of the stream {seq}, skip upkeep or save/load.");
+                return;
+            }
+
+            if (seq == Sequence && !_hasUnsavedChanges)
+            {
+                _log?.Info($"[{Name}] was loaded at seq {Sequence}, skip upkeep or save/load.");
+                return;
+            }
+
             if (await TrySaveAsync(cancel))
             {
                 Activity.Current?.SetTag(Logging.UpkeepKind, "save-load");
