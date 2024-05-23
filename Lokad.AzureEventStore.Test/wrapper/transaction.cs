@@ -3,7 +3,6 @@ using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
 using System;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -77,9 +76,18 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task AppendNothing()
         {
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction => 10);
 
-            Assert.Equal(10, value.More);
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Func<Transaction<TstEvent, State>, int> builder = transaction => 10;
+
+            var result = builder(transaction);
+
+            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+
+            Assert.Equal(10, value.Result.More);
             Assert.Empty(ew.Current.Value);
         }
 
@@ -87,13 +95,21 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task AppendOne()
         {
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Func<Transaction<TstEvent, State>, int> builder = transaction =>
             {
                 transaction.Add(new TstEvent(15));
                 return transaction.State.Value[0];
-            });
+            };
 
-            Assert.Equal(15, value.More);
+            var result = builder(transaction);
+            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+
+            Assert.Equal(15, value.Result.More);
             Assert.Equal(new[] { 15 }, ew.Current.Value);
         }
 
@@ -101,16 +117,24 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task AppendTwo()
         {
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Action<Transaction<TstEvent, State>> builder = transaction =>
             {
                 Assert.Empty(transaction.State.Value);
                 transaction.Add(new TstEvent(15));
                 Assert.Single(transaction.State.Value);
                 transaction.Add(new TstEvent(20));
                 Assert.Equal(2, transaction.State.Value.Length);
-            });
+            };
 
-            Assert.Equal(2, value.Count);
+            builder(transaction);
+            var value = await ew.TryCommitTransactionAsync(transaction, cloneSequence);
+
+            Assert.Equal(2, value.Result.Count);
             Assert.Equal(new[] { 15, 20 }, ew.Current.Value);
         }
 
@@ -118,19 +142,33 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task AppendTwice()
         {
             var ew = await Init();
-            await ew.TransactionAsync(transaction => 
-                transaction.Add(new TstEvent(10)));
 
-            var value = await ew.TransactionAsync(transaction =>
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Action<Transaction<TstEvent, State>> builder = transaction => 
+                transaction.Add(new TstEvent(10));
+
+            builder(transaction);
+            await ew.TryCommitTransactionAsync(transaction, cloneSequence);
+
+            projection = ew.GetProjectionClone();
+            cloneSequence = projection.Sequence;
+            transaction = new Transaction<TstEvent, State>(projection);
+            builder = transaction =>
             {
                 Assert.Single(transaction.State.Value);
                 transaction.Add(new TstEvent(15));
                 Assert.Equal(2, transaction.State.Value.Length);
                 transaction.Add(new TstEvent(20));
                 Assert.Equal(3, transaction.State.Value.Length);
-            });
+            };
 
-            Assert.Equal(2, value.Count);
+            builder(transaction);
+            var value = await ew.TryCommitTransactionAsync(transaction, cloneSequence);
+
+            Assert.Equal(2, value.Result.Count);
             Assert.Equal(new[] { 10, 15, 20 }, ew.Current.Value);
         }
 
@@ -138,16 +176,30 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task AppendThenThrow()
         {
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
-                transaction.Add(new TstEvent(15)));
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Action<Transaction<TstEvent, State>> builder = transaction =>
+                transaction.Add(new TstEvent(15));
+
+            builder(transaction);
+            await ew.TryCommitTransactionAsync(transaction, cloneSequence);
 
             try
             {
-                await ew.TransactionAsync(transaction =>
+                projection = ew.GetProjectionClone();
+                cloneSequence = projection.Sequence;
+                transaction = new Transaction<TstEvent, State>(projection);
+                builder = transaction =>
                 {
                     transaction.Add(new TstEvent(-1));
                     Assert.True(false);
-                });
+                };
+
+                builder(transaction);
+                await ew.TryCommitTransactionAsync(transaction, cloneSequence);
             }
             catch (ArgumentException e)
             {
@@ -162,11 +214,18 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             try
             {
-                await ew.TransactionAsync(transaction =>
+                var projection = ew.GetProjectionClone();
+                var cloneSequence = projection.Sequence;
+                var transaction = new Transaction<TstEvent, State>(projection);
+
+                Action<Transaction<TstEvent, State>> builder = transaction =>
                 {
                     transaction.Add(new TstEvent(-1));
                     Assert.True(false);
-                });
+                };
+
+                builder(transaction);
+                await ew.TryCommitTransactionAsync(transaction, cloneSequence);
             }
             catch (ArgumentException e)
             {
@@ -182,7 +241,12 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var commitBInvoked = false;
 
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Func<Transaction<TstEvent, State>, int> builder = transaction =>
             {
                 transaction.OnAbort += () => abortInvoked = true;
                 transaction.OnCommit += e =>
@@ -194,7 +258,10 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 transaction.Add(new TstEvent(15));
                 transaction.OnCommit += _ => commitBInvoked = true;
                 return transaction.State.Value[0];
-            });
+            };
+
+            var result = builder(transaction);
+            await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
 
             Assert.True(commitAInvoked);
             Assert.True(commitBInvoked);
@@ -205,14 +272,22 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public async Task Abort()
         {
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Func<Transaction<TstEvent, State>, int> builder = transaction =>
             {
                 transaction.Add(new TstEvent(15));
                 transaction.Abort();
                 return 20;
-            });
+            };
 
-            Assert.Equal(20, value.More);
+            var result = builder(transaction);
+            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+
+            Assert.Equal(20, value.Result.More);
             Assert.Empty(ew.Current.Value);
         }
 
@@ -223,14 +298,22 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var commitInvoked = false;
 
             var ew = await Init();
-            var value = await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<TstEvent, State>(projection);
+
+            Func<Transaction<TstEvent, State>, int> builder = transaction =>
             {
                 transaction.Add(new TstEvent(15));
                 transaction.OnAbort += () => abortInvoked = true;
                 transaction.OnCommit += _ => commitInvoked = true;
                 transaction.Abort();
                 return 20;
-            });
+            };
+
+            var result = builder(transaction);
+            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
 
             Assert.True(abortInvoked);
             Assert.False(commitInvoked);
@@ -239,24 +322,33 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task OnAbortException()
         {
+            Transaction<TstEvent, State>? transaction = null;
             var abortInvoked = false;
             var commitInvoked = false;
 
             var ew = await Init();
             try
             {
-                await ew.TransactionAsync(transaction =>
+                var projection = ew.GetProjectionClone();
+                var cloneSequence = projection.Sequence;
+                transaction = new Transaction<TstEvent, State>(projection);
+
+                Action<Transaction<TstEvent, State>> builder = transaction =>
                 {
                     transaction.Add(new TstEvent(15));
                     transaction.OnAbort += () => abortInvoked = true;
                     transaction.OnCommit += _ => commitInvoked = true;
                     throw new Exception("Bad");
-                });
+                };
+
+                builder(transaction);
+                var value = await ew.TryCommitTransactionAsync(transaction, cloneSequence);
 
                 Assert.True(false);
             }
             catch
             {
+                transaction?.HandleAbort();
                 Assert.True(abortInvoked);
                 Assert.False(commitInvoked);
             }

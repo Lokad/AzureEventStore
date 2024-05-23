@@ -148,13 +148,20 @@ namespace Lokad.AzureEventStore.Test.wrapper
             await ew.InitializeAsync();
             try
             {
-                await ew.TransactionAsync(transaction => 
+                var projection = ew.GetProjectionClone();
+                var cloneSequence = projection.Sequence;
+                var transaction = new Transaction<VEvent, VState>(projection);
+
+                Action<Transaction<VEvent, VState>> builder = transaction =>
                 {
                     transaction.Add(new VEvent(true));
                     transaction.Add(new VEvent(true));
                     transaction.Add(new VEvent(true));
                     transaction.Add(new VEvent(false));
-                });
+                };
+
+                builder(transaction);
+                await ew.TryCommitTransactionAsync(transaction, cloneSequence);
             }
             catch (Exception ex)
             {
@@ -179,14 +186,23 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 new StorageProvider(null),
                 new TestLog());
             await ew.InitializeAsync();
-            await ew.TransactionAsync(transaction =>
+
+            var projection = ew.GetProjectionClone();
+            var cloneSequence = projection.Sequence;
+            var transaction = new Transaction<VEvent, VState>(projection);
+
+            Action<Transaction<VEvent, VState>> builder = transaction =>
             {
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
-            });
+            };
+
+            builder(transaction);
+
+            await ew.TryCommitTransactionAsync(transaction, cloneSequence);
             Assert.Equal(5u, ew.Current.SeqState);
         }
     }
