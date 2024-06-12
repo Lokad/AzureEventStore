@@ -93,6 +93,9 @@ namespace Lokad.AzureEventStore.Util
         /// <summary> Execute the process function. </summary>
         private void Execute()
         {
+            // Make sure the LocalAsync from our caller doesn't leak in
+            using var suppress = ExecutionContext.SuppressFlow();
+
             Task.Run(async () =>
             {
                 while (true)
@@ -126,7 +129,7 @@ namespace Lokad.AzureEventStore.Util
             Period = period;
             _cancel = cancel;
 
-            _finished = new TaskCompletionSource<bool>(TaskContinuationOptions.RunContinuationsAsynchronously);
+            _finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             cancel.Register(() => _finished.TrySetCanceled());
 
             Run(cancel);
@@ -135,6 +138,9 @@ namespace Lokad.AzureEventStore.Util
         /// <summary> Performs periodic wake-ups until canceled. </summary>
         private void Run(CancellationToken cancel)
         {
+            // Make sure the LocalAsync from our caller doesn't leak in
+            using var suppress = ExecutionContext.SuppressFlow();
+
             Task.Run(async () =>
             {
                 while (!cancel.IsCancellationRequested)

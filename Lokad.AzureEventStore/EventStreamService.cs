@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Threading;
 using System.Threading.Tasks;
@@ -199,11 +200,15 @@ namespace Lokad.AzureEventStore
         {
             if (!IsReady) throw new StreamNotReadyException();
 
+            var act = Activity.Current;
+
             // This will store the result of the action
             var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             
             async Task Wrapper()
             {
+                var oldAct = Activity.Current;
+
                 // Combine service-level cancellation with action-level cancellation
                 using (var cts = new CancellationTokenSource())
                 using (_cancel.Register(cts.Cancel))
@@ -212,6 +217,9 @@ namespace Lokad.AzureEventStore
                     // Handle cancellation, exception and successful evaluation
                     try
                     {
+                        // Restore the activity from when we enqueued.
+                        Activity.Current = act;
+
                         var result = await action(cts.Token);
                         tcs.TrySetResult(result);
                     }
@@ -222,6 +230,10 @@ namespace Lokad.AzureEventStore
                     catch (Exception e)
                     {
                         tcs.TrySetException(e);
+                    }
+                    finally
+                    {
+                        Activity.Current = oldAct;
                     }
                 }
             }
