@@ -536,6 +536,7 @@ namespace Lokad.AzureEventStore.Wrapper
         }
 
         /// <summary> Create an independent clone of this reified projection. </summary>
+        /// <remarks> Not thread-safe ! </remarks>
         internal IReifiedProjection<TEvent, TState> GetProjectionClone()
         {
             return _projection.Clone();

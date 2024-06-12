@@ -369,7 +369,7 @@ namespace Lokad.AzureEventStore
                     ++attempts;
                     act?.AddTag(Logging.Attempts, attempts);
 
-                    projection = Wrapper.GetProjectionClone();
+                    projection = await EnqueueAction(_ => Task.FromResult(Wrapper.GetProjectionClone()), cancel);
                     cloneSequence = projection.Sequence;
                     transaction = new Transaction<TEvent, TState>(projection);
 
@@ -441,7 +441,7 @@ namespace Lokad.AzureEventStore
                     ++attempts;
                     act?.AddTag(Logging.Attempts, attempts);
 
-                    projection = Wrapper.GetProjectionClone();
+                    projection = await EnqueueAction(_ => Task.FromResult(Wrapper.GetProjectionClone()), cancel);
                     cloneSequence = projection.Sequence;
                     transaction = new Transaction<TEvent, TState>(projection);
 
