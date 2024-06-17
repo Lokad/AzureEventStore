@@ -274,13 +274,18 @@ namespace Lokad.AzureEventStore.Wrapper
         /// Catch up with the stream (updating the state) until there are no new 
         /// events available.
         /// </summary>
-        public async Task CatchUpAsync(CancellationToken cancel = default)
+        /// <param name="fetchLimit">
+        /// Limit the number of fetch calls for cases where the number of events
+        /// to be caught up is low.
+        /// </param>
+        public async Task CatchUpAsync(CancellationToken cancel = default, uint? fetchLimit = null)
         {
             Func<bool> finishFetch;
 
             // Local variable, to avoid reaching the limit when not doing the
             // initial catch-up.
             var eventsSinceLastUpkeep = 0u;
+            var fetchCount = 0u;
             do
             {
                 var fetchTask = Stream.BackgroundFetchAsync(cancel);
@@ -304,6 +309,9 @@ namespace Lokad.AzureEventStore.Wrapper
                 }
 
                 finishFetch = await fetchTask;
+                fetchCount++;
+                if (fetchLimit != null && fetchCount >= fetchLimit)
+                    break;
 
             } while (finishFetch());
 
@@ -426,7 +434,7 @@ namespace Lokad.AzureEventStore.Wrapper
             if (done == null)
             {
                 // Append failed. Catch up and try again.
-                await CatchUpAsync(cancel).ConfigureAwait(false);
+                await CatchUpAsync(cancel, 1).ConfigureAwait(false);
                 return new TransactionResult<T>(null, false);
             }
             else
@@ -471,7 +479,7 @@ namespace Lokad.AzureEventStore.Wrapper
             if (done == null)
             {
                 // Append failed. Catch up and try again.
-                await CatchUpAsync(cancel).ConfigureAwait(false);
+                await CatchUpAsync(cancel, 1).ConfigureAwait(false);
                 return new TransactionResult(null, false);
             }
             else
