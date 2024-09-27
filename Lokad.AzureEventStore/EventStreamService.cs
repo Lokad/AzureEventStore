@@ -1,15 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Diagnostics.Contracts;
-using System.Threading;
-using System.Threading.Tasks;
-using Lokad.AzureEventStore.Exceptions;
+﻿using Lokad.AzureEventStore.Exceptions;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
 using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Util;
 using Lokad.AzureEventStore.Wrapper;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Contracts;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Lokad.AzureEventStore
 {
@@ -381,7 +381,7 @@ namespace Lokad.AzureEventStore
                     ++attempts;
                     act?.AddTag(Logging.Attempts, attempts);
 
-                    projection = await EnqueueAction(_ => Task.FromResult(Wrapper.GetProjectionClone()), cancel);
+                    projection = GetProjectionClone(cancel);
                     cloneSequence = projection.Sequence;
                     transaction = new Transaction<TEvent, TState>(projection);
 
@@ -389,7 +389,14 @@ namespace Lokad.AzureEventStore
                     result = builder(transaction);
                     thrownByBuilder = false;
 
-                    var task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, result, cloneSequence, c), cancel);
+                    TransactionResult<T> task;
+                    if (transaction.Events.Length == 0)
+                    {
+                        transaction.HandleCommit(); 
+                        task = new TransactionResult<T>(new AppendResult<T>(0, 0, result), true);
+                    }
+                    else
+                        task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, result, cloneSequence, c), cancel);
 
                     if (task.Success)
                         return task.Result;
@@ -453,7 +460,7 @@ namespace Lokad.AzureEventStore
                     ++attempts;
                     act?.AddTag(Logging.Attempts, attempts);
 
-                    projection = await EnqueueAction(_ => Task.FromResult(Wrapper.GetProjectionClone()), cancel);
+                    projection = GetProjectionClone(cancel);
                     cloneSequence = projection.Sequence;
                     transaction = new Transaction<TEvent, TState>(projection);
 
@@ -461,7 +468,14 @@ namespace Lokad.AzureEventStore
                     builder(transaction);
                     thrownByBuilder = false;
 
-                    var task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, cloneSequence, c), cancel);
+                    TransactionResult task;
+                    if (transaction.Events.Length == 0)
+                    {
+                        transaction.HandleCommit(); 
+                        task = new TransactionResult(new AppendResult(0, 0), true);
+                    }
+                    else
+                        task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, cloneSequence, c), cancel);
 
                     if (task.Success)
                         return task.Result;
@@ -486,7 +500,9 @@ namespace Lokad.AzureEventStore
             {
                 _transactionSemaphore.Release();
             }
-        }           
+        }
+        
+
 
         /// <summary> Attempt to save the projection to the cache. </summary>
         public Task TrySaveAsync(CancellationToken cancel = default) =>
@@ -513,6 +529,20 @@ namespace Lokad.AzureEventStore
         {
             get => Wrapper.EventsBetweenUpkeepOpportunities ;
             set => Wrapper.EventsBetweenUpkeepOpportunities  = value;
+        }
+
+        /// <summary>
+        ///     Consume the current projection's clone, if there is none available, enqueue the cloning.
+        ///     The projection is cloned again by the <see cref="Wrapper"/> when checking for new events.
+        /// </summary>
+        private IReifiedProjection<TEvent, TState> GetProjectionClone(CancellationToken cancel)
+        {
+            var candidate = Wrapper.GetCloneProjection();
+            if (candidate != null)
+                return candidate;
+
+            using var act = Logging.Drivers.StartActivity("AzureStorageDriver.EnqueueProjectionClone");
+            return Task.Run(async() => await EnqueueAction(_ => Task.FromResult(Wrapper.Clone()), cancel)).Result;
         }
     }
 }

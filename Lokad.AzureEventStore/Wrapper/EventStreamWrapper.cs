@@ -326,8 +326,9 @@ namespace Lokad.AzureEventStore.Wrapper
                 Stopwatch sw = Stopwatch.StartNew();
                 await _projection.UpkeepAsync(cancel);
                 _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
-            }            
+            }
 
+            Interlocked.Exchange(ref _clone, _projection.Clone());
             NotifyRefresh();
         }
 
@@ -382,6 +383,7 @@ namespace Lokad.AzureEventStore.Wrapper
                         // Append succeeded. Catch up with locally available events (including those
                         // that were just added), then return append information.
                         CatchUpLocal(cancel);
+                        Interlocked.Exchange(ref _clone, _projection.Clone());
                         NotifyRefresh();
                         return new AppendResult<T>(tuple.Events.Count, (uint)done, tuple.Result);
                     }
@@ -413,24 +415,14 @@ namespace Lokad.AzureEventStore.Wrapper
             uint sequence,
             CancellationToken cancel = default)
         {
-            // Re-start the transaction if the event stream was advanced.
             if (sequence != Sequence)
                 return new TransactionResult<T>(null, false);
 
-            var events = transaction.Events;
-            // No events to append, just return result
-            if (events.Length == 0)
-            {
-                transaction.HandleCommit();
-                return new TransactionResult<T>(new AppendResult<T>(0, 0, result), true);
-            }
-
             // No need to check for corrupted events, since the transaction
             // automatically applies them on the fly.
-
-            // Append the events                
+            // Append the events
+            var events = transaction.Events;
             var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
-
             if (done == null)
             {
                 // Append failed. Catch up and try again.
@@ -442,6 +434,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 // Append succeeded. Catch up with locally available events (including those
                 // that were just added), then return append information.
                 CatchUpLocal(cancel);
+                Interlocked.Exchange(ref _clone, _projection.Clone());
                 NotifyRefresh();
                 transaction.HandleCommit();
                 return new TransactionResult<T>(new AppendResult<T>(events.Length, (uint)done, result), true);
@@ -458,22 +451,13 @@ namespace Lokad.AzureEventStore.Wrapper
         /// </returns>
         public async Task<TransactionResult> TryCommitTransactionAsync(Transaction<TEvent, TState> transaction, uint sequence, CancellationToken cancel = default)
         {
-            // Re-start the transaction if the event stream was advanced.
             if (sequence != Sequence)
                 return new TransactionResult(null, false);
 
-            var events = transaction.Events;
-            // No events to append, just return result
-            if (events.Length == 0)
-            {
-                transaction.HandleCommit();
-                return new TransactionResult(new AppendResult(0, 0), true);
-            }
-
             // No need to check for corrupted events, since the transaction
             // automatically applies them on the fly.
-
             // Append the events                
+            var events = transaction.Events;
             var done = await Stream.WriteAsync(events, cancel).ConfigureAwait(false);
 
             if (done == null)
@@ -487,6 +471,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 // Append succeeded. Catch up with locally available events (including those
                 // that were just added), then return append information.
                 CatchUpLocal(cancel);
+                Interlocked.Exchange(ref _clone, _projection.Clone());
                 NotifyRefresh();
                 transaction.HandleCommit();
                 return new TransactionResult(new AppendResult(events.Length, (uint)done), true);
@@ -543,9 +528,29 @@ namespace Lokad.AzureEventStore.Wrapper
             Stream.Reset();
         }
 
+        /// <summary>
+        ///     Projection's clone used for transactions. It's created in advance
+        ///     after <see cref="CatchUpAsync(CancellationToken, uint?)"/>
+        ///     or <see cref="CatchUpLocal(CancellationToken)"/> so it's ready
+        ///     for next transaction and thread-safe.
+        /// </summary>
+        private IReifiedProjection<TEvent, TState> _clone;
+
+        /// <summary>
+        ///     Get the current projection's clone for a transaction and set it to null
+        ///     so that it can't be used by another one.
+        /// </summary>
+        internal IReifiedProjection<TEvent, TState> GetCloneProjection()
+        {
+            return Interlocked.Exchange(ref _clone, null);
+        }
+
         /// <summary> Create an independent clone of this reified projection. </summary>
-        /// <remarks> Not thread-safe ! </remarks>
-        internal IReifiedProjection<TEvent, TState> GetProjectionClone()
+        /// <remarks> 
+        ///     Not thread-safe! Try to fetch an available thread-safe created clone with
+        ///     <see cref="GetCloneProjection"/> before.
+        /// </remarks>
+        internal IReifiedProjection<TEvent, TState> Clone()
         {
             return _projection.Clone();
         }
