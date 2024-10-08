@@ -1,4 +1,8 @@
-﻿using System;
+﻿using Azure;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,10 +12,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
-using Azure.Storage.Blobs.Specialized;
 
 namespace Lokad.AzureEventStore.Drivers
 {
@@ -55,6 +55,12 @@ namespace Lokad.AzureEventStore.Drivers
 
         /// <summary> The last known write position. Used to reject writes early. </summary>
         private long _lastKnownPosition;
+
+        private const int _maxBlockCount = 50000;
+
+        // 512KB has been measured as a good slice size. A typical 4MB request is sliced into 8 pieces,
+        // which are then downloaded in parallel.
+        private const int _blobSliceLength = 1024 * 512;
 
         /// <summary> 
         /// Refreshes the local cache of positions, keys and blobs from Azure.         
@@ -278,6 +284,11 @@ namespace Lokad.AzureEventStore.Drivers
             }
         }
 
+        /// <summary>
+        ///     If <see cref="_blobs"/> is empty, list all the blobs with <see cref="RefreshCache(CancellationToken)"/>.
+        ///     If the position is in the loaded blobs, read it.
+        ///     Else try to read the last blob, check if it's full, and try to load the next one if needed.
+        /// </summary>
         public async Task<DriverReadResult> ReadAsync(
             long position,
             Memory<byte> backing,
@@ -287,28 +298,60 @@ namespace Lokad.AzureEventStore.Drivers
             act?.SetTag(Logging.PositionRead, position)
                 .SetTag(Logging.PositionStream, _lastKnownPosition);
 
-            // STEP 1: PRELIMINARY CHECKS
-            // ==========================
 
             // The local cache tells us there is no data available at the provided position,
             // so start by refreshing the cache.
-            if (_blobs.Count == 0 || position >= _lastKnownPosition)
+            if (_blobs.Count == 0)
             {
                 await RefreshCache(cancel);
+                // Even with a fresh cache, our position is beyond any available data:
+                // return that there is no more data available.
+                if (_blobs.Count == 0 || position >= _lastKnownPosition)
+                    return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
             }
 
-            // Even with a fresh cache, our position is beyond any available data:
-            // return that there is no more data available.
-            if (_blobs.Count == 0 || position >= _lastKnownPosition)
-                return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
+            // The position we are looking for is in the loaded blobs.
+            if (position < _lastKnownPosition)
+            {
+                return await FindBlobAndReadAsync(backing, position, act, cancel);
+            }
+            else
+            {
+                if (position == _lastKnownPosition)
+                {
+                    var result = await TryReadFromLastBlobAsync(backing, act, cancel);
+                    if (result != null)
+                        return result;
+                }
 
-            // STEP 2: IDENTIFY BLOB
-            // =====================
+                await RefreshCache(cancel);
+                if (position >= _lastKnownPosition)
+                    return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
 
+                return await FindBlobAndReadAsync(backing, position, act, cancel);
+            }            
+        }
+
+        /// <summary>
+        ///     Called when the searched position is in the cached blobs and thus,
+        ///     is lower than <see cref="_lastKnownPosition"/>. Find in which blob
+        ///     it is, and read from this position.
+        /// </summary>
+        /// <param name="backing"> Bytes to download the blob's content. </param>
+        /// <param name="position"> Global searched position. </param>
+        /// <param name="act"> Logging activity. </param>
+        /// <param name="cancel"> Cancellation token. </param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        private async Task<DriverReadResult> FindBlobAndReadAsync(
+            Memory<byte> backing, 
+            long position, 
+            Activity act, 
+            CancellationToken cancel)
+        {
             EventBlob blob = null;
             long firstPosition = 0;
             long blobSize = 0;
-
             for (var i = _blobs.Count - 1; i >= 0; --i)
             {
                 if (_firstPosition[i] <= position)
@@ -321,12 +364,92 @@ namespace Lokad.AzureEventStore.Drivers
             }
 
             if (blob == null)
-                // Since _firstPosition[0] == 0, this means the position is negative
+            // Since _firstPosition[0] == 0, this means the position is negative
                 throw new ArgumentOutOfRangeException("Invalid position:" + position, "position");
 
-            // STEP 3: READ RAW DATA
-            // =====================
+            return await ReadBlobAsync(blob, backing, position, firstPosition, blobSize, act, cancel);
+        }
 
+        /// <summary>
+        ///     When looking for a position greater than <see cref="_lastKnownPosition"/>,
+        ///     try directly to download the blob's content and parse it. The metadata 
+        ///     indicates if the blob is full or not. If it is, call
+        ///     <see cref="RefreshCache(CancellationToken)"/> to look for new ones.
+        /// </summary>
+        /// <param name="backing"> Bytes to download the blob's content. </param>
+        /// <param name="act"> Logging activity. </param>
+        /// <param name="cancel"> Cancellation token. </param>
+        /// <returns> 
+        ///     A <see cref="DriverReadResult"/> if the last blob is not full,
+        ///     and null if a new <see cref="RefreshCache(CancellationToken)"/>
+        ///     is needed.
+        /// </returns>
+        private async Task<DriverReadResult> TryReadFromLastBlobAsync(
+            Memory<byte> backing, 
+            Activity act, 
+            CancellationToken cancel)
+        {
+            var lastBlob = _blobs[^1];
+            var blobClient = _container.GetBlobClient(lastBlob.DataBlob.Name);
+
+            // We suppose we are close to the end of the stream, so there will not be much
+            // new data available. Try to download the last blob's content, start one byte
+            // before as it will fail if there is no new data.
+            var length = backing.Length + 1;
+            var blobPosition = _lastKnownPosition - _firstPosition[^1];
+            var downloaded = await blobClient.DownloadContentAsync(
+                range: new HttpRange(blobPosition - 1, length), cancellationToken: cancel);
+            var content = downloaded.Value.Content.ToMemory();
+
+            // We are up to date in the current last blob.
+            if (content.Length == 1 && downloaded.Value.Details.BlobCommittedBlockCount < _maxBlockCount)
+            {
+                return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
+            }
+
+            // There are new data in the current last blob, try to read as much as we can.
+            // The first read should have been enough.
+            var offset = content.Length - 1;
+            if (content.Length > 1)
+            {
+                content.Span[1..].CopyTo(backing.Span);
+
+                // Update the size of the blob.
+                lastBlob.RefreshBlob(offset);
+                _blobs[^1] = lastBlob;
+                _lastKnownPosition += offset;
+
+                backing = backing[..offset];
+                return ParseData(backing, _lastKnownPosition - offset, act);
+            }
+
+            // If the first query doesn't return new data, get next blob.
+            return null;            
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="blob"> Blob that contains the searched position. </param>
+        /// <param name="backing"> Bytes to download the blob's content. </param>
+        /// <param name="position"> Global searched position. </param>
+        /// <param name="firstPosition"> 
+        ///     Blob's offset, first byte of the blob in the stream. Used to
+        ///     get the relative position in the blob.
+        /// </param>
+        /// <param name="blobSize"> Current blob's size. </param>
+        /// <param name="act"> Logging activity. </param>
+        /// <param name="cancel"> Cancellation token. </param>
+        /// <returns></returns>
+        private async Task<DriverReadResult> ReadBlobAsync(
+            EventBlob blob,
+            Memory<byte> backing, 
+            long position, 
+            long firstPosition,
+            long blobSize,
+            Activity act,
+            CancellationToken cancel)
+        {
             var startPos = position - firstPosition;
             var maxBytes = (int)Math.Min(backing.Length, blobSize - startPos);
             backing = backing[..maxBytes];
@@ -342,9 +465,11 @@ namespace Lokad.AzureEventStore.Drivers
             var readBytes = await ReadRangeAsync(blob, startPos, backing, cancel);
             backing = backing[..readBytes];
 
-            // STEP 4: PARSE DATA
-            // ==================
+            return ParseData(backing, position, act);
+        }
 
+        private static DriverReadResult ParseData(Memory<byte> backing, long position, Activity act)
+        {
             var events = new List<RawEvent>();
             var parsedBytes = 0;
 
@@ -378,42 +503,44 @@ namespace Lokad.AzureEventStore.Drivers
         /// 
         ///     Returns the total size read.
         /// </remarks>
-        private async Task<int> ReadRangeAsync(EventBlob blob, long start, Memory<byte> backing, CancellationToken cancel)
+        private async Task<int> ReadRangeAsync(
+            EventBlob blob, 
+            long start, 
+            Memory<byte> backing, 
+            CancellationToken cancel)
         {
-            // 512KB has been measured as a good slice size. A typical 4MB request is sliced into 8 pieces,
-            // which are then downloaded in parallel.
-            const int maxSliceSize = 1024 * 512;
             var maxBytes = backing.Length;
 
             List<Task<int>> todo = null;
             var bufferStart = 0;
-            while (maxBytes > 2 * maxSliceSize)
+            while (maxBytes > 2 * _blobSliceLength)
             {
                 todo ??= new List<Task<int>>();
                 todo.Add(blob.ReadSubRangeAsync(
-                    backing.Slice(bufferStart, maxSliceSize),
+                    backing.Slice(bufferStart, _blobSliceLength),
                     start,
                     true,
                     cancel));
 
-                maxBytes -= maxSliceSize;
-                start += maxSliceSize;
-                bufferStart += maxSliceSize;
+                maxBytes -= _blobSliceLength;
+                start += _blobSliceLength;
+                bufferStart += _blobSliceLength;
             }
 
-            var length = bufferStart + await blob.ReadSubRangeAsync(
+            var readBlob = (await blob.ReadSubRangeAsync(
                 backing.Slice(bufferStart, maxBytes),
                 start,
                 blob.Bytes >= start + maxBytes,
-                cancel).ConfigureAwait(false);
+                cancel).ConfigureAwait(false));
+            var length = bufferStart + readBlob;
 
             if (todo != null)
             {
                 await Task.WhenAll(todo).ConfigureAwait(false);
                 foreach (var t in todo)
                 {
-                    if (t.Result != maxSliceSize)
-                        throw new Exception($"Expected {maxSliceSize} bytes but got {t.Result}");
+                    if (t.Result != _blobSliceLength)
+                        throw new Exception($"Expected {_blobSliceLength} bytes but got {t.Result}");
                 }
             }
 

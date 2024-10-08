@@ -1,14 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Azure;
-using Azure.Storage;
+﻿using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Lokad.AzureEventStore.Drivers
 {
@@ -35,7 +33,7 @@ namespace Lokad.AzureEventStore.Drivers
         public const string CompactSuffix = ".compact";
 
         /// <summary> The name of the nth event blob. </summary>
-        private static string NthBlobName(int nth, bool compact = false) =>
+        public static string NthBlobName(int nth, bool compact = false) =>
             Prefix + nth.ToString("D5") + (compact ? CompactSuffix : "");
 
         public static int ParseNth(string str)

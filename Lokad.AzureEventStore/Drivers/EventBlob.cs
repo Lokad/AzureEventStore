@@ -112,7 +112,11 @@ namespace Lokad.AzureEventStore.Drivers
         ///      not enough bytes in the blob. <paramref name="likelyLong"/> will be true
         ///      if the caller expects the maxBytes to be reached by the read.
         /// </returns>
-        public async Task<int> ReadSubRangeAsync(Memory<byte> buffer, long start, bool likelyLong, CancellationToken cancel)
+        public async Task<int> ReadSubRangeAsync(
+            Memory<byte> buffer, 
+            long start, 
+            bool likelyLong,
+            CancellationToken cancel)
         {
             var dataClient = _container.GetBlobClient(DataBlob.Name);
 
@@ -141,5 +145,10 @@ namespace Lokad.AzureEventStore.Drivers
         /// </summary>
         public AppendBlobClient GetAppendBlobClient() =>
             _container.GetAppendBlobClient(AppendBlob.Name);
+
+        public EventBlob RefreshBlob(long bytes)
+        {
+            return new EventBlob(_container, AppendBlob, DataBlob, Offset, Bytes + bytes);
+        }
     }
 }
