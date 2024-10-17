@@ -148,7 +148,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             await ew.InitializeAsync();
             try
             {
-                var projection = ew.GetProjectionClone();
+                var projection = ew.GetCloneProjection();
                 var cloneSequence = projection.Sequence;
                 var transaction = new Transaction<VEvent, VState>(projection);
 
@@ -187,7 +187,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 new TestLog());
             await ew.InitializeAsync();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<VEvent, VState>(projection);
 

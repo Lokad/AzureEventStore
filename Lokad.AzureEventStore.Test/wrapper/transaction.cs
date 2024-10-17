@@ -77,15 +77,16 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
-            var cloneSequence = projection.Sequence;
+            var projection = ew.GetCloneProjection();
             var transaction = new Transaction<TstEvent, State>(projection);
 
             Func<Transaction<TstEvent, State>, int> builder = transaction => 10;
 
             var result = builder(transaction);
-
-            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+            Assert.True(transaction.Events.Length == 0);
+                
+            transaction.HandleCommit(); 
+            var value = new TransactionResult<int>(new AppendResult<int>(0, 0, result), true);
 
             Assert.Equal(10, value.Result.More);
             Assert.Empty(ew.Current.Value);
@@ -96,7 +97,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -118,7 +119,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -143,7 +144,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -153,7 +154,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             builder(transaction);
             await ew.TryCommitTransactionAsync(transaction, cloneSequence);
 
-            projection = ew.GetProjectionClone();
+            projection = ew.GetCloneProjection();
             cloneSequence = projection.Sequence;
             transaction = new Transaction<TstEvent, State>(projection);
             builder = transaction =>
@@ -177,7 +178,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -189,7 +190,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             try
             {
-                projection = ew.GetProjectionClone();
+                projection = ew.GetCloneProjection();
                 cloneSequence = projection.Sequence;
                 transaction = new Transaction<TstEvent, State>(projection);
                 builder = transaction =>
@@ -214,7 +215,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             try
             {
-                var projection = ew.GetProjectionClone();
+                var projection = ew.GetCloneProjection();
                 var cloneSequence = projection.Sequence;
                 var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -242,7 +243,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
+            var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<TstEvent, State>(projection);
 
@@ -273,8 +274,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
-            var cloneSequence = projection.Sequence;
+            var projection = ew.GetCloneProjection();
             var transaction = new Transaction<TstEvent, State>(projection);
 
             Func<Transaction<TstEvent, State>, int> builder = transaction =>
@@ -285,7 +285,10 @@ namespace Lokad.AzureEventStore.Test.wrapper
             };
 
             var result = builder(transaction);
-            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+            Assert.True(transaction.Events.Length == 0);
+                
+            transaction.HandleCommit(); 
+            var value = new TransactionResult<int>(new AppendResult<int>(0, 0, result), true);
 
             Assert.Equal(20, value.Result.More);
             Assert.Empty(ew.Current.Value);
@@ -299,8 +302,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             var ew = await Init();
 
-            var projection = ew.GetProjectionClone();
-            var cloneSequence = projection.Sequence;
+            var projection = ew.GetCloneProjection();
             var transaction = new Transaction<TstEvent, State>(projection);
 
             Func<Transaction<TstEvent, State>, int> builder = transaction =>
@@ -313,7 +315,10 @@ namespace Lokad.AzureEventStore.Test.wrapper
             };
 
             var result = builder(transaction);
-            var value = await ew.TryCommitTransactionAsync(transaction, result, cloneSequence);
+            Assert.True(transaction.Events.Length == 0);
+                
+            transaction.HandleCommit(); 
+            var value = new TransactionResult<int>(new AppendResult<int>(0, 0, result), true);
 
             Assert.True(abortInvoked);
             Assert.False(commitInvoked);
@@ -329,7 +334,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var ew = await Init();
             try
             {
-                var projection = ew.GetProjectionClone();
+                var projection = ew.GetCloneProjection();
                 var cloneSequence = projection.Sequence;
                 transaction = new Transaction<TstEvent, State>(projection);
 

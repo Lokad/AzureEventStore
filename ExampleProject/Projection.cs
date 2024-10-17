@@ -145,6 +145,21 @@ namespace ExampleProject
             return true;
         }
 
+        public Task<RestoredState<State>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
+        {
+            return Task.FromResult<RestoredState<State>>(null);
+        }
+
+        public Task CommitAsync(State state, uint sequence, CancellationToken cancel = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<State> UpkeepAsync(StateUpkeepContext stateUpkeepContext, State state, CancellationToken cancel = default)
+        {
+            return Task.FromResult(state);
+        }
+
         /// <see cref="IProjection{TEvent}.FullName"/>
         public string FullName => "State";
 

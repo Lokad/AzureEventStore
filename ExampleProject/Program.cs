@@ -31,6 +31,9 @@ namespace ExampleProject
                 // This is where we would write the projection snapshots, if
                 // we had implemented them.
                 projectionCache: new MappedCacheProvider(LocalCache),
+                // This is where we would write a memory-mapped state, if we
+                // had implemented them.
+                storageProvider: new StorageProvider(null),
                 // This is used by the service to emit messages about what is happening
                 log: new Log(),
                 // This cancellation token stops the background process.
