@@ -1,4 +1,5 @@
 ﻿using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Specialized;
 using Lokad.AzureEventStore.Drivers;
 using System;
 using System.IO;
@@ -122,6 +123,18 @@ namespace Lokad.AzureEventStore
             return start >= 0
                 ? (connectionString.Substring(0, start), connectionString.Substring(start + ";Container=".Length))
                 : (connectionString, "");
+        }
+
+        /// <summary>
+        ///     Expects this configuration to represent a container in an Azure Blob Storage account,
+        ///     and takes a blob name as parameter ; returns a new storage configuration that connects
+        ///     to a single-blob event stream stored in that event.
+        /// </summary>
+        public StorageConfiguration MonoBlob(string blobName)
+        {
+            var client = GetBlobContainerClient();
+            var driver = new MonoBlobStorageDriver(client.GetAppendBlobClient(blobName));
+            return new StorageConfiguration(driver);
         }
     }
 }
