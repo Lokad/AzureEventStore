@@ -271,12 +271,14 @@ namespace Lokad.AzureEventStore.Wrapper
         }
 
         /// <summary>
-        /// Catch up with the stream (updating the state) until there are no new 
-        /// events available.
+        ///     Catch up with the stream (updating the state) until there are no new
+        ///     events available.
         /// </summary>
         /// <param name="fetchLimit">
-        /// Limit the number of fetch calls for cases where the number of events
-        /// to be caught up is low.
+        ///     Limit the number of fetch calls for cases where the number of events
+        ///     to be caught up is low (for example, after a failed attempt at writing
+        ///     events). If a fetch limit is provided, then CatchUpAsync is no longer
+        ///     guaranteed to read up to the last event in the stream.
         /// </param>
         public async Task CatchUpAsync(CancellationToken cancel = default, uint? fetchLimit = null)
         {
@@ -288,7 +290,11 @@ namespace Lokad.AzureEventStore.Wrapper
             var fetchCount = 0u;
             do
             {
-                var fetchTask = Stream.BackgroundFetchAsync(cancel);
+                // If there is a limit on the number of fetches has been performed, then pretend
+                // to have performed a fetch that returned no events. 
+                var fetchTask = fetchLimit != null && fetchCount++ >= fetchLimit
+                    ? Task.FromResult(() => false)
+                    : Stream.BackgroundFetchAsync(cancel);
 
                 // We have started fetching the next batch of events in 
                 // the background, so we might as well start processing
@@ -309,9 +315,6 @@ namespace Lokad.AzureEventStore.Wrapper
                 }
 
                 finishFetch = await fetchTask;
-                fetchCount++;
-                if (fetchLimit != null && fetchCount >= fetchLimit)
-                    break;
 
             } while (finishFetch());
 
