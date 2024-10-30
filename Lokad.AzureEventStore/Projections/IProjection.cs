@@ -53,7 +53,7 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> Attempt to load an external state with <paramref name="stateCreationContext"/>. </summary>
         /// <returns> null if loading was unsuccessful. </returns>
-        Task<RestoredState<TState>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default);
+        Task<RestoredState<TState>?> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default);
 
         /// <summary> Attempt to save state to a destination stream. </summary>
         /// <returns> true if saving was successful. </returns>
