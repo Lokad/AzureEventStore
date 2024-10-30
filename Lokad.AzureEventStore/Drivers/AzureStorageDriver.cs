@@ -392,39 +392,32 @@ namespace Lokad.AzureEventStore.Drivers
             var lastBlob = _blobs[^1];
             var blobClient = _container.GetBlobClient(lastBlob.DataBlob.Name);
 
-            // We suppose we are close to the end of the stream, so there will not be much
-            // new data available. Try to download the last blob's content, start one byte
-            // before as it will fail if there is no new data.
-            var length = backing.Length + 1;
+            var properties = (await blobClient.GetPropertiesAsync(null, cancel).ConfigureAwait(false)).Value; 
             var blobPosition = _lastKnownPosition - _firstPosition[^1];
-            var downloaded = await blobClient.DownloadContentAsync(
-                range: new HttpRange(blobPosition - 1, length), cancellationToken: cancel);
-            var content = downloaded.Value.Content.ToMemory();
-
-            // We are up to date in the current last blob.
-            if (content.Length == 1 && downloaded.Value.Details.BlobCommittedBlockCount < _maxBlockCount)
+            if (blobPosition == properties.ContentLength)
             {
+                if (properties.BlobCommittedBlockCount == _maxBlockCount)
+                    return null;
+
                 return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
             }
 
-            // There are new data in the current last blob, try to read as much as we can.
-            // The first read should have been enough.
-            var offset = content.Length - 1;
-            if (content.Length > 1)
-            {
-                content.Span[1..].CopyTo(backing.Span);
+            // We suppose we are close to the end of the stream, so there will not be much
+            // new data available.
+            var downloaded = await blobClient.DownloadContentAsync(
+                range: new HttpRange(blobPosition, backing.Length), cancellationToken: cancel);
+            var content = downloaded.Value.Content.ToMemory();
 
-                // Update the size of the blob.
-                lastBlob.RefreshBlob(offset);
-                _blobs[^1] = lastBlob;
-                _lastKnownPosition += offset;
+            content.Span.CopyTo(backing.Span);
 
-                backing = backing[..offset];
-                return ParseData(backing, _lastKnownPosition - offset, act);
-            }
+            var contentLength = content.Length;
+            // Update the size of the blob.
+            lastBlob = lastBlob.RefreshBlob(contentLength);
+            _blobs[^1] = lastBlob;
+            _lastKnownPosition += contentLength;
 
-            // If the first query doesn't return new data, get next blob.
-            return null;            
+            backing = backing[..contentLength];
+            return ParseData(backing, _lastKnownPosition - contentLength, act);   
         }
 
         /// <summary>
