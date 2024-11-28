@@ -37,16 +37,16 @@ namespace Lokad.AzureEventStore.Wrapper
             StorageConfiguration storage, 
             IEnumerable<IProjection<TEvent>> projections,
             Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            StorageProvider storageProvider,
+            IProjectionFolderProvider projectionFolderProvider,
             ILogAdapter log = null)
-            : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, storageProvider, log, blobContainerClient)
+            : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, projectionFolderProvider, log, blobContainerClient)
         { }
 
         internal EventStreamWrapper(
             IStorageDriver storage, 
             IEnumerable<IProjection<TEvent>> projections,
             Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            StorageProvider storageProvider,
+            IProjectionFolderProvider projectionFolderProvider,
             ILogAdapter log = null,
             BlobContainerClient blobContainerClient = null)
         {
@@ -54,10 +54,10 @@ namespace Lokad.AzureEventStore.Wrapper
             Stream = new EventStream<TEvent>(storage, log, blobContainerClient);
             _projection = new ReifiedProjectionGroup<TEvent, TState>(
                 projections,
-                storageProvider,
                 projectionCacheBuilder != null
                     ? projectionCacheBuilder(Stream) 
                     : null, 
+                projectionFolderProvider,
                 log);
             _commitTask = Task.CompletedTask;
         }
@@ -328,6 +328,7 @@ namespace Lokad.AzureEventStore.Wrapper
 
                 Stopwatch sw = Stopwatch.StartNew();
                 await _projection.UpkeepAsync(cancel);
+                await _projection.PreserveAsync(cancel);
                 _log?.Info($"[ES read] upkeep operations done in {sw.Elapsed} at seq {_projection.Sequence}.");
             }
 

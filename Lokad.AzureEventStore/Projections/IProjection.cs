@@ -28,6 +28,9 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> The type of the state. </summary>
         Type State { get; }
+
+        /// <summary> Indicates if the projection needs a <see cref="IProjectionFolderProvider"/>. </summary>
+        bool NeedsMemoryMappedFolder { get; }
     }
 
     /// <summary> Projects events onto an immutable state. </summary>
@@ -49,7 +52,7 @@ namespace Lokad.AzureEventStore.Projections
 
         /// <summary> Attempt to load state from a source stream. </summary>
         /// <returns> null if loading was unsuccessful. </returns>
-        Task<TState> TryLoadAsync(Stream source, CancellationToken cancel);
+        Task<TState?> TryLoadAsync(Stream source, CancellationToken cancel);
 
         /// <summary> Attempt to load an external state with <paramref name="stateCreationContext"/>. </summary>
         /// <returns> null if loading was unsuccessful. </returns>

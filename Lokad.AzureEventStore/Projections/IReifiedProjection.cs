@@ -1,6 +1,6 @@
-﻿using System.Threading;
+﻿using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -76,6 +76,14 @@ namespace Lokad.AzureEventStore.Projections
         ///     depend on how the projection is initialized.
         /// </summary>
         Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default);
+
+        /// <summary>
+        ///     If supported, tries to save a copy of the contents of this folder
+        ///     elsewhere, such as to a blob. Caller must guarantee that no one 
+        ///     will write to the folder while this function is running.
+        /// </summary>
+        /// <returns> True if successful </returns>
+        Task<bool> PreserveAsync(CancellationToken cancel = default);
     }
 
     /// <summary>

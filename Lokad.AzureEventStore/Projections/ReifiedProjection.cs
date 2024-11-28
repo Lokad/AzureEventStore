@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Lokad.AzureEventStore.Streams;
+using Lokad.MemoryMapping;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -7,7 +9,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using Lokad.AzureEventStore.Streams;
 
 namespace Lokad.AzureEventStore.Projections
 {
@@ -17,7 +18,20 @@ namespace Lokad.AzureEventStore.Projections
     {
         private readonly IProjection<TEvent, TState> _projection;
         
+        /// <summary>
+        ///     Provider of a persistent cache to read and write the projection states.
+        /// </summary>
         private readonly IProjectionCacheProvider _cacheProvider;
+
+        /// <summary>
+        ///     Provider of a folder to write the projection states as memory-mapped files.
+        /// </summary>
+        private readonly IProjectionFolderProvider _folderProvider;
+
+        /// <summary>
+        ///     Final memory mapped folder chosen among the candidates provided by <see cref="_folderProvider"/>.
+        /// </summary>
+        private IMemoryMappedFolder _memoryMappedFolder;
 
         /// <summary> Becomes true if the state is possibly inconsistent. </summary>
         /// <remarks> Inconsistent state can be due to errors when parsing or applying events. </remarks>
@@ -35,9 +49,6 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> For logging. </summary>
         private readonly ILogAdapter _log;
 
-        /// <summary> Settings used to create the state. </summary>
-        private readonly StateCreationContext _stateCreationContext;
-
         /// <summary> Disposable handling the loaded external state. Null otherwise. </summary>
         private IDisposable _disposable { get; set; }
 
@@ -50,8 +61,8 @@ namespace Lokad.AzureEventStore.Projections
 
         public ReifiedProjection(
             IProjection<TEvent, TState> projection, 
-            StorageProvider storageProvider, 
             IProjectionCacheProvider cacheProvider = null, 
+            IProjectionFolderProvider folderProvider = null,
             ILogAdapter log = null)
         {
             if (projection == null)
@@ -71,10 +82,11 @@ namespace Lokad.AzureEventStore.Projections
             _projection = projection;
             
             _cacheProvider = cacheProvider;
+            _folderProvider = folderProvider;
+            _memoryMappedFolder = null;
             _log = log;
 
             _log?.Debug("Using projection: " + Name);
-            _stateCreationContext = storageProvider.GetStateCreationContext(Name, _cacheProvider);
              _possiblyInconsistent = false;
              Sequence = 0U;
             _disposable = null;
@@ -91,14 +103,30 @@ namespace Lokad.AzureEventStore.Projections
         /// </summary>
         public async Task CreateAsync(CancellationToken cancel = default)
         {
-            var restoredState = await _projection.TryRestoreAsync(_stateCreationContext, cancel);
-            if (restoredState != null)
+            if (_projection.NeedsMemoryMappedFolder)
             {
-                Sequence = restoredState.Sequence;
-                Current = restoredState.State;
-                _disposable = restoredState.Disposable;
-                _hasUnsavedChanges = false;
-                return;
+                await foreach(var candidate in _folderProvider.EnumerateCandidates(_projection.FullName, cancel))
+                {
+                    try
+                    {
+                        var restoredState = await _projection.TryRestoreAsync(new StateCreationContext(candidate, _cacheProvider), cancel);
+                        if (restoredState != null)
+                        {
+                            _memoryMappedFolder = candidate;
+                            Sequence = restoredState.Sequence;
+                            Current = restoredState.State;
+                            _disposable = restoredState.Disposable;
+                            _hasUnsavedChanges = false;
+                            return;
+                        }
+                        candidate.Dispose();
+                    }
+                    catch (Exception ex)
+                    {           
+                        candidate.Dispose();
+                        _log?.Warning($"[{Name}] failed to restore.", ex); 
+                    }
+                }                                   
             }
 
             if (!await TryLoadAsync(cancel))
@@ -115,7 +143,8 @@ namespace Lokad.AzureEventStore.Projections
             }
             
             Sequence = 0U;
-            Current = _projection.Initial(_stateCreationContext);
+            _memoryMappedFolder = _folderProvider.CreateEmpty(_projection.FullName);
+            Current = _projection.Initial(new StateCreationContext(_memoryMappedFolder, _cacheProvider));
             _possiblyInconsistent = false;
             _hasUnsavedChanges = false;
 
@@ -396,12 +425,13 @@ namespace Lokad.AzureEventStore.Projections
         {
             _projection = clone._projection;
             _cacheProvider = clone._cacheProvider;
+            _folderProvider = clone._folderProvider;
+            _memoryMappedFolder = clone._memoryMappedFolder;
             Current = clone.Current;
             Sequence = clone.Sequence;
             Name = clone.Name;
             _log = clone._log;
             _possiblyInconsistent = clone._possiblyInconsistent;
-            _stateCreationContext = clone._stateCreationContext;
         }
 
         /// <inheritdoc/>
@@ -440,13 +470,7 @@ namespace Lokad.AzureEventStore.Projections
         /// </remarks>
         public async Task UpkeepAsync(CancellationToken cancel = default)
         {
-            if (_possiblyInconsistent)
-            {
-                _log?.Warning($"[{Name}] state is possibly inconsistent, skip upkeep.");
-                return;
-            }
-
-            var candidate = await _projection.UpkeepAsync(new StateUpkeepContext(_cacheProvider), Current, cancel);
+            var candidate = await _projection.UpkeepAsync(new StateUpkeepContext(_memoryMappedFolder, _cacheProvider), Current, cancel);
             if (candidate != null)
                 Current = candidate;
         }
@@ -470,7 +494,7 @@ namespace Lokad.AzureEventStore.Projections
                 return;
             }
 
-            if (await TrySaveAsync(cancel))
+            if (!_projection.NeedsMemoryMappedFolder && await TrySaveAsync(cancel))
             {
                 Activity.Current?.SetTag(Logging.UpkeepKind, "save-load");
 
@@ -491,6 +515,22 @@ namespace Lokad.AzureEventStore.Projections
 
                 await UpkeepAsync(cancel);
                 _log?.Info($"[{Name}] upkeep operations done in {sw.Elapsed} at seq {Sequence}.");
+            }
+        }
+
+        public async Task<bool> PreserveAsync(CancellationToken cancel = default)
+        {
+            if (_memoryMappedFolder == null)
+                return false;
+
+            try
+            {
+                return await _folderProvider.Preserve(_projection.FullName, _memoryMappedFolder, cancel);
+            }
+            catch (Exception e)
+            {
+                _log?.Warning($"[{Name}] Failed to preserve.", e);
+                return false;
             }
         }
     }

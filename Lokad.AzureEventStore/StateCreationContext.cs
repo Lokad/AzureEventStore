@@ -1,5 +1,6 @@
 ﻿#nullable enable
 using Lokad.AzureEventStore.Projections;
+using Lokad.MemoryMapping;
 
 namespace Lokad.AzureEventStore
 {
@@ -8,14 +9,19 @@ namespace Lokad.AzureEventStore
     /// </summary>
     public class StateCreationContext
     {
-        /// <summary> External state folder path. </summary>
-        public string? ExternalStateFolderPath { get; }
+        /// <summary>
+        ///     Final memory mapped folder chosen among the candidates provided by the projection folder provider.
+        /// </summary>
+        public IMemoryMappedFolder? MemoryMappedFolder { get; }
 
+        /// <summary>
+        ///     Provider of a persistent cache to read and write the projection states.
+        /// </summary>
         public IProjectionCacheProvider? CacheProvider { get; }
 
-        public StateCreationContext(string? externalStateFolderPath, IProjectionCacheProvider? cacheProvider)
+        public StateCreationContext(IMemoryMappedFolder? memoryMappedFolder, IProjectionCacheProvider? cacheProvider)
         {
-            ExternalStateFolderPath = externalStateFolderPath;
+            MemoryMappedFolder = memoryMappedFolder;
             CacheProvider = cacheProvider;
         }
     }

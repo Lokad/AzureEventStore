@@ -25,16 +25,11 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary> Cached state, computed lazily. </summary>        
         private Lazy<TState> _current;
 
-        /// <summary> Handles external storage for state writing. </summary>
-        private readonly StorageProvider _storageProvider;
-
         private ReifiedProjectionGroup(
             IReifiedProjection<TEvent>[] reifiedProjections,
             Func<IReifiedProjection<TEvent>[], TState> refresh,
-            uint sequence,
-            StorageProvider storageProvider)
+            uint sequence)
         {
-            _storageProvider = storageProvider;
             _reifiedProjections = reifiedProjections;
             _refresh = refresh;
             _refreshClosure = () =>
@@ -53,8 +48,7 @@ namespace Lokad.AzureEventStore.Projections
             new ReifiedProjectionGroup<TEvent, TState>(
                 _reifiedProjections.Select(p => p.Clone()).ToArray(),
                 _refresh,
-                Sequence,
-                _storageProvider);
+                Sequence);
 
         /// <inheritdoc/>
         IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
@@ -64,11 +58,10 @@ namespace Lokad.AzureEventStore.Projections
         /// </summary>
         public ReifiedProjectionGroup(
             IEnumerable<IProjection<TEvent>> projections,
-            StorageProvider storageProvider, 
             IProjectionCacheProvider cacheProvider = null, 
+            IProjectionFolderProvider folderProvider = null, 
             ILogAdapter log = null)
         {
-            _storageProvider = storageProvider;
             // Dirty reflection work to reify the individual projections and store their
             // type parameter.
             var reifiedByType = new Dictionary<Type, IReifiedProjection<TEvent>>();
@@ -88,7 +81,7 @@ namespace Lokad.AzureEventStore.Projections
 
                 var constructor = reifiedProjectionType
                     .GetTypeInfo()
-                    .GetConstructor(new []{ projectionType, typeof(StorageProvider), typeof(IProjectionCacheProvider), typeof(ILogAdapter) });
+                    .GetConstructor(new []{ projectionType, typeof(IProjectionCacheProvider), typeof(IProjectionFolderProvider), typeof(ILogAdapter) });
 
                 if (constructor == null)
                     throw new Exception("No constructor found for '" + reifiedProjectionType + "'");
@@ -97,7 +90,7 @@ namespace Lokad.AzureEventStore.Projections
 
                 try
                 {
-                    reified = (IReifiedProjection<TEvent>) constructor.Invoke(new object[] {p, storageProvider, cacheProvider, log});
+                    reified = (IReifiedProjection<TEvent>) constructor.Invoke(new object[] {p, cacheProvider, folderProvider, log});
                 }
                 catch (TargetInvocationException e)
                 {
@@ -274,6 +267,12 @@ namespace Lokad.AzureEventStore.Projections
         public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
         {
             await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepOrSaveLoadAsync(seq, cancel)));
+        }
+
+        public async Task<bool> PreserveAsync(CancellationToken cancel = default)
+        {
+            var all = await Task.WhenAll(_reifiedProjections.Select(p => p.PreserveAsync(cancel)));
+            return all.All(b => b);
         }
 
         /// <summary> Construct the state from the sub-projections. </summary>

@@ -70,19 +70,19 @@ namespace Lokad.AzureEventStore
         /// <param name="storage"> Identifies where the event stream data is stored. </param>
         /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
         /// <param name="projectionCache"> Used to save projected state. </param>
-        /// <param name="storageProvider"> Handles external storage for state writing. </param>
+        /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
         /// <param name="log"> Used for logging. </param>
         /// <param name="cancel"> Stops the background tasks when called. </param>
         public static EventStreamService<TEvent,TState> StartNew(
             StorageConfiguration storage,
             IEnumerable<IProjection<TEvent>> projections,
             IProjectionCacheProvider projectionCache,
-            StorageProvider storageProvider,
+            IProjectionFolderProvider projectionFolder,
             ILogAdapter log,
             CancellationToken cancel)
         =>
             new EventStreamService<TEvent, TState>(
-                storage, projections, (EventStream<TEvent> _) => projectionCache, storageProvider, log, cancel);
+                storage, projections, (EventStream<TEvent> _) => projectionCache, projectionFolder, log, cancel);
 
         /// <summary> Initialize and start the service. </summary>
         /// <remarks> 
@@ -92,18 +92,18 @@ namespace Lokad.AzureEventStore
         /// <param name="storage"> Identifies where the event stream data is stored. </param>
         /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
         /// <param name="projectionCacheBuilder"> Callback function which builds the cache, called after the the download of the json settings file from Azure. </param>
-        /// <param name="storageProvider"> Handles external storage for state writing. </param>
+        /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
         /// <param name="log"> Used for logging. </param>
         /// <param name="cancel"> Stops the background tasks when called. </param>
         public static EventStreamService<TEvent, TState> StartNew(
             StorageConfiguration storage,
             IEnumerable<IProjection<TEvent>> projections,
             Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            StorageProvider storageProvider,
+            IProjectionFolderProvider projectionFolder,
             ILogAdapter log,
             CancellationToken cancel)
         =>
-            new EventStreamService<TEvent, TState>(storage, projections, projectionCacheBuilder, storageProvider, log, cancel);
+            new EventStreamService<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolder, log, cancel);
 
         /// <remarks>
         ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
@@ -113,13 +113,13 @@ namespace Lokad.AzureEventStore
             StorageConfiguration storage,
             IEnumerable<IProjection<TEvent>> projections,
             Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            StorageProvider storageProvider,
+            IProjectionFolderProvider projectionFolderProvider,
             ILogAdapter log,
             CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
         {
             _log = log;
             _cancel = cancel;
-            Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, storageProvider, log);
+            Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolderProvider, log);
             Quarantine = Wrapper.Quarantine;
 
             Ready = Task.Run(Initialize, cancel);
