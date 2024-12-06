@@ -82,7 +82,10 @@ namespace Lokad.AzureEventStore.Projections
             _projection = projection;
             
             _cacheProvider = cacheProvider;
-            _folderProvider = folderProvider;
+            _folderProvider = projection.NeedsMemoryMappedFolder ? folderProvider : null;
+            if (projection.NeedsMemoryMappedFolder && _folderProvider == null)
+                throw new ArgumentNullException(nameof(folderProvider), $"Projection {Name} needs a memory-mapped folder");
+
             _memoryMappedFolder = null;
             _log = log;
 
@@ -143,7 +146,7 @@ namespace Lokad.AzureEventStore.Projections
             }
             
             Sequence = 0U;
-            _memoryMappedFolder = _folderProvider.CreateEmpty(_projection.FullName);
+            _memoryMappedFolder = _folderProvider?.CreateEmpty(_projection.FullName);
             Current = _projection.Initial(new StateCreationContext(_memoryMappedFolder, _cacheProvider));
             _possiblyInconsistent = false;
             _hasUnsavedChanges = false;
