@@ -327,7 +327,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
         [Fact]
         public async Task OnAbortException()
         {
-            Transaction<TstEvent, State>? transaction = null;
+            Transaction<TstEvent, State> transaction = null;
             var abortInvoked = false;
             var commitInvoked = false;
 

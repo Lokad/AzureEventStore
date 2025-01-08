@@ -1,9 +1,10 @@
-﻿using System;
+﻿using Lokad.AzureEventStore.Projections;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore.Projections
+namespace Lokad.AzureEventStore.Cache
 {
     /// <summary> Saves projection state to files in a directory.  </summary>
     public sealed class FileCacheProvider : IProjectionCacheProvider

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Version>2.1.0</Version>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <PackageIcon>lokad.png</PackageIcon>
@@ -10,12 +10,13 @@
     <Copyright>Copyright © Lokad 2022</Copyright>
     <Authors>Lokad</Authors>
     <Company>Lokad</Company>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- When working locally, comment out this block and uncomment the one below. -->
 
   <ItemGroup>
-    <PackageReference Include="Lokad.AzureEventStore" Version="9.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore" Version="13.0.1" />
   </ItemGroup>
 
   
@@ -25,7 +26,6 @@
   
 
   <ItemGroup>
-    <PackageReference Include="Lokad.LargeImmutable" Version="1.0.0" />
 	<PackageReference Include="Azure.Storage.Blobs" Version="12.13.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>

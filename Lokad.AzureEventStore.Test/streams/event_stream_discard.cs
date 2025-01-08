@@ -14,7 +14,6 @@ namespace Lokad.AzureEventStore.Test.streams
     public class LargeEvt
     {
         public static string BaseString = "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789,;:?./!%¨$-()+[]'^";
-        private string _seq;
 
         [JsonConstructor]
         private LargeEvt(){}

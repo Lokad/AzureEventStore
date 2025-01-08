@@ -1,14 +1,12 @@
 ﻿using Lokad.AzureEventStore.Streams;
-using Lokad.LargeImmutable;
-using Lokad.LargeImmutable.Mapping;
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-
 namespace Lokad.AzureEventStore.Cache
 {
-    public static class MappedCacheExtensions
+    internal static class MappedCacheExtensions
     {
         /// <summary>
         ///     Convert a stream to a <see cref="BigMemoryStream"/>.
@@ -28,21 +26,17 @@ namespace Lokad.AzureEventStore.Cache
         {
             if (stream is BigMemoryStream bms)
                 return bms;
-
             if (stream is MemoryStream ms)
             {
                 stream.Seek(0, SeekOrigin.End);
                 return new BigMemoryStream(new VolatileMemory(ms.ToArray()));
             }
-
             if (stream is BoundedStream bs && bs.InnerStream is BigMemoryStream ibms)
             {
                 stream.Seek(0, SeekOrigin.End);
                 return new BigMemoryStream(ibms.Memory.Slice(bs.Offset, bs.Length));
             }
-
             // No obvious conversion, need to copy data from the stream to an array.
-
             byte[] array;
             try
             {
@@ -55,7 +49,6 @@ namespace Lokad.AzureEventStore.Cache
                     nameof(stream),
                     e);
             }
-
             stream.Position = 0;
             var offset = 0;
             while (offset < array.Length)
@@ -63,11 +56,52 @@ namespace Lokad.AzureEventStore.Cache
                 var read = await stream.ReadAsync(array, offset, array.Length - offset, cancel);
                 if (read == 0)
                     throw new InvalidOperationException("Unexpected end-of-stream");
-
                 offset += read;
             }
-
             return new BigMemoryStream(new VolatileMemory(array));
         }
+    }
+
+    /// <summary>
+    ///     A fully in-memory implementation of <see cref="IBigMemory"/>
+    /// </summary>
+    public sealed class VolatileMemory : IBigMemory
+    {
+        /// <summary> In-memory byte array that pretends to be in a file. </summary>
+        private readonly Memory<byte> _backing;
+
+        public VolatileMemory(Memory<byte> backing) =>
+            _backing = backing;
+
+        public VolatileMemory(ReadOnlyMemory<byte> backing) => _backing = MemoryMarshal.AsMemory(backing);
+
+        /// <see cref="IBigMemory.Length"/>
+        public long Length => _backing.Length;
+
+        /// <see cref="IBigMemory.AsMemory"/>
+        public Memory<byte> AsMemory(long offset, int length) =>
+            _backing.Slice((int)offset, length);
+
+        public void Dispose() { }
+
+        /// <see cref="IBigMemory.Slice"/>
+        public IBigMemory Slice(long offset, long length) =>
+            new VolatileMemory(_backing.Slice((int)offset, (int)length));
+    }
+
+    /// <summary> 
+    ///     A large chunk of memory (usually a memory-mapped file), used for reading 
+    ///     backing data for the data structures.
+    /// </summary>
+    public interface IBigMemory : IDisposable
+    {
+        /// <summary> A portion of the file, as memory. </summary>
+        Memory<byte> AsMemory(long offset, int length);
+
+        /// <summary> A portion of the backing memory. </summary>
+        IBigMemory Slice(long offset, long length);
+
+        /// <summary> Total length of the memory. </summary>
+        long Length { get; }
     }
 }
