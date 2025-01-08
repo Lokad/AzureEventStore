@@ -11,15 +11,15 @@
     <PackageVersion>1.0.0.0</PackageVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="MessagePack" Version="2.1.165" />
-    <PackageReference Include="MessagePack.ImmutableCollection" Version="2.1.165" />
+    <PackageReference Include="MessagePack" Version="2.5.187" />
+    <PackageReference Include="MessagePack.ImmutableCollection" Version="2.5.187" />
 	<PackageReference Include="Azure.Storage.Blobs" Version="12.13.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>
   <!-- When developing locally, comment out this block and uncomment the one below it. -->
   <ItemGroup>
-    <PackageReference Include="Lokad.AzureEventStore" Version="12.1.10" />
-    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="1.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore" Version="13.0.1" />
+    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="2.2.0" />
   </ItemGroup>
   
   <!--<ItemGroup>

@@ -5,9 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
 using ExampleProject.Events;
-using Lokad.LargeImmutable;
 using System.Collections.Generic;
-using Lokad.AzureEventStore.Cache;
 using MessagePack;
 using System.Text.RegularExpressions;
 using Lokad.AzureEventStore;
@@ -18,8 +16,8 @@ namespace ExampleProject
     {
         public State Initial(StateCreationContext stateCreationContext) => new State(
             ImmutableDictionary<string, int>.Empty,
-            LargeImmutableList<ImmutableList<int>>.Empty(State.MessagePackOptions),
-            LargeImmutableList<State.Document>.Empty(State.MessagePackOptions));
+            ImmutableList<ImmutableList<int>>.Empty,
+            ImmutableList<State.Document>.Empty);
 
         /// <summary> Update the state by applying an event. </summary>
         public State Apply(uint sequence, IEvent e, State previous)
@@ -121,16 +119,12 @@ namespace ExampleProject
         /// <summary> Load the state from a stream. </summary>
         public async Task<State> TryLoadAsync(Stream source, CancellationToken cancel)
         {
-            // Discover if the source can be memory-mapped, or copy it to an in-memory buffer.
-            var stream = await source.AsBigMemoryStream(cancel);
-
             var index = await MessagePackSerializer.DeserializeAsync<ImmutableDictionary<string, int>>(
-                stream, State.MessagePackOptions);
-
-            // LargeImmutableList uses memory-mapping to avoid reloading the entire tables
-            // from the disk.
-            var documentLists = LargeImmutableList<ImmutableList<int>>.Load(stream, State.MessagePackOptions);
-            var documents = LargeImmutableList<State.Document>.Load(stream, State.MessagePackOptions);
+                source, State.MessagePackOptions);
+            var documentLists = await MessagePackSerializer.DeserializeAsync<ImmutableList<ImmutableList<int>>>(
+                source, State.MessagePackOptions);
+            var documents = await MessagePackSerializer.DeserializeAsync<ImmutableList<State.Document>>(
+                source, State.MessagePackOptions);
 
             return new State(index, documentLists, documents);
         }
@@ -139,8 +133,8 @@ namespace ExampleProject
         public async Task<bool> TrySaveAsync(Stream destination, State state, CancellationToken cancel)
         {
             await MessagePackSerializer.SerializeAsync(destination, state.Index, State.MessagePackOptions);
-            state.DocumentLists.Save(destination);
-            state.Documents.Save(destination);
+            await MessagePackSerializer.SerializeAsync(destination, state.DocumentLists, State.MessagePackOptions);
+            await MessagePackSerializer.SerializeAsync(destination, state.Documents, State.MessagePackOptions);
 
             return true;
         }
@@ -165,5 +159,7 @@ namespace ExampleProject
 
         /// <see cref="IProjection{TEvent}.State"/>
         Type IProjection<IEvent>.State => typeof(State);
+
+        public bool NeedsMemoryMappedFolder => false;
     }
 }

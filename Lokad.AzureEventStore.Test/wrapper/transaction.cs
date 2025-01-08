@@ -31,6 +31,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             public string FullName => "Test-01";
             public Type State => typeof(State);
+            public bool NeedsMemoryMappedFolder => false;
+
             public State Initial(StateCreationContext stateCreationContext) => new State(ImmutableArray<int>.Empty);
 
             public State Apply(uint sequence, TstEvent e, State previous) =>
@@ -66,7 +68,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 new MemoryStorageDriver(),
                 new[] { new Projection() }, 
                 null,
-                new StorageProvider(null));
+                null);
             await ew.InitializeAsync();
             return ew;
         }

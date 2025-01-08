@@ -7,7 +7,6 @@ using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
 using Xunit;
-using Lokad.AzureEventStore.Cache;
 
 namespace Lokad.AzureEventStore.Test.wrapper
 {
@@ -35,6 +34,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
         public class Projection : IProjection<VEvent, VState>
         {
             public Type State => typeof(VState);
+            public bool NeedsMemoryMappedFolder => false;
+
             public VState Apply(uint _, VEvent e, VState s)
             {
                 if (!e.IsValid)
@@ -90,7 +91,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 memory,
                 new[] { new Projection() }, 
                 null, 
-                new StorageProvider(null),
+                null,
                 new TestLog());
             await ew.InitializeAsync();
             await ew.AppendEventsAsync(new[] { 
@@ -111,7 +112,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 memory,
                 new[] { new Projection() }, 
                 null, 
-                new StorageProvider(null),
+                null,
                 new TestLog());
             await ew.InitializeAsync();
             try
@@ -143,7 +144,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 memory,
                 new[] { new Projection() }, 
                 null, 
-                new StorageProvider(null),
+                null,
                 new TestLog());
             await ew.InitializeAsync();
             try
@@ -182,8 +183,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
             var ew = new EventStreamWrapper<VEvent, VState>(
                 memory,
                 new[] { new Projection() }, 
-                null, 
-                new StorageProvider(null),
+                null,
+                null,
                 new TestLog());
             await ew.InitializeAsync();
 

@@ -1,8 +1,10 @@
 ﻿using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Lokad.AzureEventStore.Cache;
 using Lokad.AzureEventStore.Projections;
 using Moq;
 using Xunit;
@@ -12,10 +14,10 @@ namespace Lokad.AzureEventStore.Test.projections
     public class reified_projection
     {
         internal virtual IReifiedProjection<int, string> Make(IProjection<int, string> projection,
-            StorageProvider storageProvider,
-            IProjectionCacheProvider cache = null)
+            IProjectionCacheProvider cache = null,
+            IProjectionFolderProvider folder = null)
         {
-            return new ReifiedProjection<int, string>(projection, storageProvider, cache);
+            return new ReifiedProjection<int, string>(projection, cache, folder);
         }
 
         #region Initialization 
@@ -28,7 +30,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.FullName).Returns("test");
             projection.Setup(p => p.State).Returns(typeof (string));
 
-            var reified = Make(projection.Object, new StorageProvider(null));
+            var reified = Make(projection.Object);
             reified.CreateAsync();
             Assert.Equal("initial", reified.Current);
             Assert.Equal(0U, reified.Sequence);
@@ -44,7 +46,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 projection.Setup(p => p.FullName).Returns((string)null);
                 projection.Setup(p => p.State).Returns(typeof(string));
 
-                Make(projection.Object, new StorageProvider(null));
+                Make(projection.Object);
                 Assert.True(false);
             }
             catch (ArgumentException)
@@ -62,7 +64,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 projection.Setup(p => p.FullName).Returns("2/3");
                 projection.Setup(p => p.State).Returns(typeof(string));
 
-                Make(projection.Object, new StorageProvider(null));
+                Make(projection.Object);
                 Assert.True(false);
             }
             catch (ArgumentException)
@@ -81,7 +83,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 projection.Setup(p => p.FullName).Returns("test");
                 projection.Setup(p => p.State).Returns(typeof(string));
 
-                var reified = Make(projection.Object, new StorageProvider(null));
+                var reified = Make(projection.Object);
                 await reified.CreateAsync();
                 Assert.True(false);
             }
@@ -105,7 +107,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
 
-            var reified = Make(projection.Object, new StorageProvider(null));
+            var reified = Make(projection.Object);
             reified.CreateAsync();
             
             Assert.Equal("I", reified.Current);
@@ -127,7 +129,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
 
-            var reified = Make(projection.Object, new StorageProvider(null));
+            var reified = Make(projection.Object);
             reified.CreateAsync();
             reified.Apply(1U, 13);
             reified.Apply(4U, 42);
@@ -146,7 +148,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, new StorageProvider(null));
+            var reified = Make(projection.Object);
             await reified.CreateAsync();
             try
             {
@@ -174,7 +176,7 @@ namespace Lokad.AzureEventStore.Test.projections
                 projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                     .Returns<uint, int, string>((seq, evt, state) => string.Format("{0}({1}:{2})", state, evt, seq));
 
-                var reified = Make(projection.Object, new StorageProvider(null));
+                var reified = Make(projection.Object);
                 await reified.CreateAsync(CancellationToken.None);
 
                 reified.Apply(1U, 13);
@@ -214,7 +216,40 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(Encoding.UTF8.GetString(bytes)); 
                 });
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
+
+            await reified.CreateAsync(CancellationToken.None);
+
+            Assert.Equal(2U, reified.Sequence);
+            Assert.Equal("0000", reified.Current);
+        }
+
+        [Fact]
+        public async Task load_state_from_projection_folder()
+        {
+            var projection = new Mock<IProjection<int, string>>();
+            projection.Setup(p => p.Initial(It.IsAny<StateCreationContext>())).Returns("I");
+            projection.Setup(p => p.FullName).Returns("test");
+            projection.Setup(p => p.NeedsMemoryMappedFolder).Returns(true);
+            projection.Setup(p => p.State).Returns(typeof(string));
+            projection.Setup(p => p.TryRestoreAsync(It.IsAny<StateCreationContext>(), It.IsAny<CancellationToken>()))
+                .Returns<StateCreationContext, CancellationToken>((s, c) =>
+                {
+                    var entry = s.MemoryMappedFolder.CreateNew("test", 100);
+                    var bytes = new byte[]
+                    {
+                        0x02, 0x00, 0x00, 0x00, // Current position
+                        0x30, 0x30, 0x30, 0x30, // Event data "0000"
+                    };
+                    bytes.CopyTo(entry.AsSpan);
+                    var span = s.MemoryMappedFolder.Open("test").AsSpan;    
+                    
+                    return Task.FromResult(new RestoredState<string>(
+                        MemoryMarshal.Cast<byte, uint>(span[..4])[0],
+                        Encoding.UTF8.GetString(span.Slice(4, 4)))); 
+                });
+
+            var reified = Make(projection.Object, folder: new InMemoryFolderProvider());
 
             await reified.CreateAsync(CancellationToken.None);
 
@@ -238,7 +273,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             await reified.CreateAsync(CancellationToken.None);
 
@@ -262,7 +297,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             await reified.CreateAsync(CancellationToken.None);
 
@@ -290,7 +325,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.State).Returns(typeof(string));
             ReturnsExtensions.ReturnsAsync(projection.Setup(p => p.TryLoadAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>())), "bad");
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             await reified.CreateAsync(CancellationToken.None);
 
@@ -319,7 +354,7 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(true);
                 });
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
             await reified.CreateAsync();
             await reified.TrySaveAsync(CancellationToken.None);
 
@@ -348,7 +383,7 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(false);
                 });
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
             await reified.CreateAsync();
             await reified.TrySaveAsync(CancellationToken.None);
 
@@ -367,7 +402,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Throws(new Exception("Projection.TrySaveAsync"));
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             try
             {
@@ -396,7 +431,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.TrySaveAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Throws(new Exception("Projection.TrySaveAsync"));
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             reified.SetPossiblyInconsistent();
 
@@ -422,7 +457,7 @@ namespace Lokad.AzureEventStore.Test.projections
                     return Task.FromResult(true);
                 });
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
             reified.SetPossiblyInconsistent();
             reified.Reset();
 
@@ -451,7 +486,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             try { reified.Apply(1U, 13); /* Sets 'inconsistent' */ } catch {}
 

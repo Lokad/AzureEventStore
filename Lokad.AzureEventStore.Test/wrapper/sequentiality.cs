@@ -67,6 +67,8 @@ namespace Lokad.AzureEventStore.Test.wrapper
         {
             public string FullName => "CheckSeqProj-01";
             public Type State => typeof(CheckSequence);
+            public bool NeedsMemoryMappedFolder => false;
+
             public CheckSequence Initial(StateCreationContext stateCreationContext) => new CheckSequence();
 
             public CheckSequence Apply(uint sequence, TstEvent e, CheckSequence previous)
@@ -117,7 +119,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 memory,
                 new []{new CheckSequence.Projection()},  
                 null,
-                new StorageProvider(null));
+                null);
             await ew.InitializeAsync();
             await ew.AppendEventsAsync(new[] { new TstEvent(1) });
             await ew.AppendEventsAsync(new[] { new TstEvent(2) });
@@ -127,7 +129,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
 
             // try to read: 
             var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
-                memory, new[] {new CheckSequence.Projection()}, null, new StorageProvider(null));
+                memory, new[] {new CheckSequence.Projection()}, null, null);
             
             await ew2.InitializeAsync();
             Assert.Equal(3u, ew2.Current.LastEvt);
@@ -142,7 +144,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 memory,
                 new []{new CheckSequence.Projection()},
                 (EventStream<TstEvent> _) => cache,
-                new StorageProvider(null));
+                null);
             await ew.InitializeAsync();
             await ew.AppendEventsAsync(new[] { new TstEvent(1) });
             await ew.AppendEventsAsync(new[] { new TstEvent(2) });
@@ -156,7 +158,7 @@ namespace Lokad.AzureEventStore.Test.wrapper
             // try to read: 
             var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
                 memory, new[] {new CheckSequence.Projection()},
-                (EventStream<TstEvent> _) => cache, new StorageProvider(null));
+                (EventStream<TstEvent> _) => cache, null);
 
             await ew2.InitializeAsync();
             Assert.Equal(5u, ew2.Current.LastEvt);

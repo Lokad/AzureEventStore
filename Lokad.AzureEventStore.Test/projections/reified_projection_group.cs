@@ -34,9 +34,9 @@ namespace Lokad.AzureEventStore.Test.projections
     {
         #region Parent class tests
 
-        internal override IReifiedProjection<int, string> Make(IProjection<int, string> projection, StorageProvider storageProvider, IProjectionCacheProvider cache = null)
+        internal override IReifiedProjection<int, string> Make(IProjection<int, string> projection, IProjectionCacheProvider cache = null, IProjectionFolderProvider folder = null)
         {
-            return new ReifiedProjectionGroup<int, string>(new[] {projection}, storageProvider, cache);
+            return new ReifiedProjectionGroup<int, string>(new[] {projection}, cache, folder);
         }
 
         #endregion
@@ -77,7 +77,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 MockString().Object
-            }, new StorageProvider(null));
+            });
             await reified.CreateAsync();
 
             Assert.Equal(0U, reified.Sequence);
@@ -92,8 +92,8 @@ namespace Lokad.AzureEventStore.Test.projections
             var reified = new ReifiedProjectionGroup<int, State>(new IProjection<int>[]
             {
                 MockInteger().Object,
-                MockString().Object
-            }, new StorageProvider(null));
+                MockString().Object 
+            });
             await reified.CreateAsync();
             reified.Apply(1U, 10);
 
@@ -109,7 +109,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 MockString().Object
-            }, new StorageProvider(null));
+            });
             await reified.CreateAsync();
             reified.Apply(1U, 10);
 
@@ -130,7 +130,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 MockString().Object
-            }, new StorageProvider(null));
+            });
             await reified.CreateAsync();
             try
             {
@@ -151,7 +151,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 MockString().Object
-            }, new StorageProvider(null));
+            });
             await reified.CreateAsync();
             var oldcount = State.Creations;
 
@@ -190,7 +190,7 @@ namespace Lokad.AzureEventStore.Test.projections
             {
                 MockInteger().Object,
                 str.Object
-            }, new StorageProvider(null), cache);
+            }, cache);
 
             await reified.CreateAsync(CancellationToken.None);
 
@@ -212,7 +212,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, new StorageProvider(null));
+            var reified = Make(projection.Object);
             await reified.CreateAsync();
             try { reified.Apply(1U, 13); } catch { }
 
@@ -236,7 +236,7 @@ namespace Lokad.AzureEventStore.Test.projections
             projection.Setup(p => p.Apply(It.IsAny<uint>(), It.IsAny<int>(), It.IsAny<string>()))
                 .Throws(new Exception("Boo."));
 
-            var reified = Make(projection.Object, new StorageProvider(null), cache);
+            var reified = Make(projection.Object, cache);
 
             try { reified.Apply(1U, 13); } catch { } // Sets 'inconsistent'
 

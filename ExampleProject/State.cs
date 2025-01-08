@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Immutable;
-using Lokad.LargeImmutable;
+using System.IO;
 using MessagePack;
 using MessagePack.ImmutableCollection;
 using MessagePack.Resolvers;
@@ -43,8 +43,8 @@ namespace ExampleProject
 
         public State(
             ImmutableDictionary<string, int> index,
-            LargeImmutableList<ImmutableList<int>> documentLists,
-            LargeImmutableList<Document> documents)
+            ImmutableList<ImmutableList<int>> documentLists,
+            ImmutableList<Document> documents)
         {
             Index = index ?? throw new ArgumentNullException(nameof(index));
             DocumentLists = documentLists ?? throw new ArgumentNullException(nameof(documentLists));
@@ -61,10 +61,10 @@ namespace ExampleProject
         /// <remarks>
         ///     Documents are indexed by their position in <see cref="Documents"/>.
         /// </remarks>
-        public LargeImmutableList<ImmutableList<int>> DocumentLists { get; }
+        public ImmutableList<ImmutableList<int>> DocumentLists { get; }
 
         /// <summary> All known documents. </summary>
-        public LargeImmutableList<Document> Documents { get; } 
+        public ImmutableList<Document> Documents { get; } 
 
         /// <summary>
         ///     The MessagePack options to use to serialize and deserialize the contents 
