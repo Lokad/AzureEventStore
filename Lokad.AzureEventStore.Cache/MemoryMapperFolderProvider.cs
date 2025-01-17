@@ -39,9 +39,15 @@ namespace Lokad.AzureEventStore.Cache
             var fullPath = Path.Combine(_path, stateName);
             Directory.CreateDirectory(fullPath);
 
-            var files = Directory.GetFiles(fullPath);
-            foreach (var file in files)
-                File.Delete(file);
+            foreach (var subdirPath in Directory.EnumerateDirectories(fullPath))
+            {
+                Directory.Delete(subdirPath, recursive: true);
+            }
+ 
+            foreach (var filePath in Directory.EnumerateFiles(fullPath))
+            {
+                File.Delete(filePath);
+            }
 
             return new MemoryMappedFolder(fullPath);
         }
@@ -52,8 +58,7 @@ namespace Lokad.AzureEventStore.Cache
             Directory.CreateDirectory(fullPath);
 
             var candidate = new MemoryMappedFolder(fullPath);
-            var files = candidate.EnumerateEntryNames();
-            if (files.Any())
+            if (!candidate.IsEmpty())
             {
                 yield return candidate;
             }
