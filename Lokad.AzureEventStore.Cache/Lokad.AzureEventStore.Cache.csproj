@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
-    <Version>2.2.1</Version>
+    <Version>2.2.2</Version>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <PackageIcon>lokad.png</PackageIcon>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
