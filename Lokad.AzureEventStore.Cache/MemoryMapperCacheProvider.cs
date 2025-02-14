@@ -37,16 +37,23 @@ namespace Lokad.AzureEventStore.Cache
         /// <summary>
         ///     Delay before uploading new entries.
         /// </summary>
-        private const int _minutesUploadDelay = 15;
+        private readonly TimeSpan _uploadDelay;
 
         /// <summary>
         ///     Number of a state versions that can be kept in the blob container.
         /// </summary>
         private const int _copyLimit = 2;
 
-        public MemoryMapperCacheProvider(BlobContainerClient container)
+        /// <summary>
+        ///     Metadata key to flag if an upload is finished and can be downloaded.
+        ///     It is placed on the first blob (ordered by name).
+        /// </summary>
+        private const string _uploadStatus = "available";
+
+        public MemoryMapperCacheProvider(BlobContainerClient container, TimeSpan? uploadDelay = null)
         {
             _container = container;
+            _uploadDelay = uploadDelay ?? TimeSpan.FromMinutes(120);
         }
 
         /// <summary> 
@@ -95,7 +102,10 @@ namespace Lokad.AzureEventStore.Cache
 
             var groups = await GetGroupedBlobs(stateName, cancellationToken);
 
-            var blobs = groups.FirstOrDefault();
+            if (groups == null || groups.Length == 0)
+                return;
+
+            var blobs = groups.FirstOrDefault(GroupIsComplete);
             if (blobs == null)
                 return;
 
@@ -109,6 +119,18 @@ namespace Lokad.AzureEventStore.Cache
 
             while (tasks.Count > 0)
                 await tasks.Dequeue();
+        }
+
+        /// <summary>
+        ///     Checks if the first blob of the group ordered by name is flagged
+        ///     as available in its metadata.
+        /// </summary>
+        private static bool GroupIsComplete(IEnumerable<BlobItem> blobs)
+        {
+            var blob = blobs.OrderBy(b => b.Name).First();
+
+            return blob.Metadata.TryGetValue(_uploadStatus, out var available) 
+                && bool.TryParse(available, out var status) && status;
         }
 
         /// <summary>
@@ -160,8 +182,9 @@ namespace Lokad.AzureEventStore.Cache
             foreach (var group in groups) 
             {
                 if (DateTime.TryParseExact(group.Key, _dateFormat, null, DateTimeStyles.None, out var oldTimestamp)
-                    && oldTimestamp >= timestamp.AddMinutes(-_minutesUploadDelay))
+                    && oldTimestamp >= timestamp.Subtract(_uploadDelay))
                     return;
+
                 count++;
                 if (count > _copyLimit)
                 {
@@ -170,6 +193,9 @@ namespace Lokad.AzureEventStore.Cache
             }
 
             var files = folder.EnumerateEntryNames().OrderBy(f => f).ToArray();
+            if (files.Length == 0) 
+                return;
+
             var tasks = new Queue<Task>();
 
             var timedStateName = $"{stateName}/{timestamp.ToString(_dateFormat)}";
@@ -182,6 +208,10 @@ namespace Lokad.AzureEventStore.Cache
 
             while (tasks.Count > 0)
                 await tasks.Dequeue();
+
+
+            var blob = _container.GetBlobClient(timedStateName + "/" + files[0]);
+            await blob.SetMetadataAsync(new Dictionary<string, string> { { _uploadStatus, "true" } });
 
             foreach (var delete in toDelete)
                 await _container.GetBlobClient(delete).DeleteAsync();
