@@ -32,6 +32,14 @@ namespace Lokad.AzureEventStore
             ConnectionString = connectionString;
         }
 
+        /// <summary>
+        /// Can be used to create a storage configuration from a MemoryStream.
+        /// </summary>
+        public StorageConfiguration(MemoryStream stream)
+        {
+            _storageDriver = new MemoryStorageDriver(stream);
+        }
+
         /// <summary> Return the provided storage driver, for testing purposes. </summary>        
         internal StorageConfiguration(IStorageDriver driver)
         {

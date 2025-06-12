@@ -6,8 +6,12 @@ namespace Lokad.AzureEventStore.Drivers
     /// <remarks> Intended for use during local development. </remarks>
     internal sealed class MemoryStorageDriver : AbstractStreamStorageDriver
     {
-        internal MemoryStorageDriver() 
+        internal MemoryStorageDriver()
             : base(new MemoryStream())
-        {}
+        { }
+
+        internal MemoryStorageDriver(MemoryStream stream) 
+            : base(stream)
+        { }
     }
 }
