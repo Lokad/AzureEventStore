@@ -1,10 +1,11 @@
-﻿using System;
+﻿#nullable enable
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Projections;
-using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using System.Threading;
@@ -84,34 +85,37 @@ namespace Lokad.AzureEventStore.Cache
             return result.OrderByDescending(b => b.Name).ToArray();
         }
 
-        public async Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string stateName)
+        public async Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string stateName)
         {
-            if (!AllowRead) return null;
+            if (!AllowRead) return AsyncEnumerable.Empty<CacheCandidate>();
 
-            return Enumerate(await Blobs(stateName));
-
-            IEnumerable<Task<CacheCandidate>> Enumerate(BlobItem[] orderedBlobs)
-            {
-                foreach (var blob in orderedBlobs)
-                    yield return Task.Run(async () =>
-                        new CacheCandidate(
-                            "blob:" + blob.Name,
-                            await _container.GetBlobClient(blob.Name).OpenReadAsync()));
-            }
+            var orderedBlobs = await Blobs(stateName);
+            return orderedBlobs
+                .ToAsyncEnumerable()
+                .SelectAwait(async blob =>
+                    new CacheCandidate(
+                        "blob:" + blob.Name,
+                        await _container.GetBlobClient(blob.Name).OpenReadAsync()));
         }
 
-        public async Task TryWriteAsync(string stateName, Func<Stream, Task> write)
+        public async Task TryWriteAsync(ILogAdapter? log, string stateName, Func<Stream, Task> write)
         {
-            if (!AllowWrite) return;
+            if (!AllowWrite)
+            {
+                log?.Debug($"Unwritable blob container for {stateName}");
+                return;
+            }
 
             var all = await Blobs(stateName);
 
-            var name = stateName + "/" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            var name = $"{stateName}/{DateTime.UtcNow:yyyyMMddHHmmss}";
 
             // Not the latest: don't bother writing.
             if (all.Length > 0 && string.CompareOrdinal(all[0].Name, name) >= 0)
                 return;
 
+            log?.Info($"Start saving {stateName} in blob as {name}");
+            
             // Clean-up the old and deprecated versions of the cache
             for (var i = MaxCacheBlobsCount; i < all.Length; ++i)
             {
@@ -132,6 +136,7 @@ namespace Lokad.AzureEventStore.Cache
             try
             {
                 await write(stream).ConfigureAwait(false);
+                log?.Info($"End saving {stateName} in blob as {name}");
                 stream.Dispose();
             }
             catch

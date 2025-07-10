@@ -88,7 +88,11 @@ namespace Lokad.AzureEventStore.Cache
         /// <summary>
         ///     Load blobs from the container into memory-mapped entries.
         /// </summary>
-        public async Task LoadAsync(string stateName, IMemoryMappedFolder folder, CancellationToken cancellationToken = default)
+        public async Task LoadAsync(
+            ILogAdapter? log,
+            string stateName,
+            IMemoryMappedFolder folder,
+            CancellationToken cancellationToken = default)
         {
             if (!await _container.ExistsAsync(cancellationToken).ConfigureAwait(false))
                 throw new InvalidOperationException("Container does not exist, can not load files from it.");
@@ -109,6 +113,7 @@ namespace Lokad.AzureEventStore.Cache
             if (blobs == null)
                 return;
 
+            log?.Info($"Loading blobs for projection {stateName} from {_container.Name}");
             var tasks = new Queue<Task>();
             foreach (var blob in blobs)
             {
@@ -119,6 +124,7 @@ namespace Lokad.AzureEventStore.Cache
 
             while (tasks.Count > 0)
                 await tasks.Dequeue();
+            log?.Info($"End of blob loading for projection {stateName} from {_container.Name}");
         }
 
         /// <summary>
@@ -173,7 +179,11 @@ namespace Lokad.AzureEventStore.Cache
         ///     Deletes the old blobs.
         ///     Uploads one compressed blob for each memory-mapped entry.
         /// </summary>
-        public async Task UploadToBlobsAsync(string stateName, IMemoryMappedFolder folder, CancellationToken cancellationToken = default)
+        public async Task UploadToBlobsAsync(
+            ILogAdapter? log,
+            string stateName,
+            IMemoryMappedFolder folder,
+            CancellationToken cancellationToken = default)
         {
             var timestamp = DateTime.UtcNow;
             var groups = await GetGroupedBlobs(stateName, cancellationToken);
@@ -198,6 +208,7 @@ namespace Lokad.AzureEventStore.Cache
 
             var tasks = new Queue<Task>();
 
+            log?.Info($"Starting to upload blobs for projection {stateName}");
             var timedStateName = $"{stateName}/{timestamp.ToString(_dateFormat)}";
             foreach (var file in files)
             {
@@ -215,6 +226,8 @@ namespace Lokad.AzureEventStore.Cache
 
             foreach (var delete in toDelete)
                 await _container.GetBlobClient(delete).DeleteAsync();
+            
+            log?.Info($"End of upload for projection {stateName}");
         }
 
         private async Task UploadToBlobAsync(string stateName, IMemoryMappedFolder folder, string file, CancellationToken cancellationToken)

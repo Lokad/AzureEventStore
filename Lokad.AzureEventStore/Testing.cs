@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -81,41 +82,39 @@ namespace Lokad.AzureEventStore
         /// <summary> Saves projection state to memory.  </summary>
         public sealed class InMemoryCache : IProjectionCacheProvider, IEnumerable<KeyValuePair<string, MemoryStream>>
         {
-            public readonly Dictionary<string, MemoryStream> Streams = new Dictionary<string, MemoryStream>();
+            private readonly Dictionary<string, MemoryStream> _streams = new ();
+            
+            public IReadOnlyDictionary<string, MemoryStream> Streams => _streams;
 
             /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
-            public Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string fullname)
+            public Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string fullname) =>
+                Task.FromResult(OpenReadAsyncInternal(log, fullname));
+            
+            private async IAsyncEnumerable<CacheCandidate> OpenReadAsyncInternal(ILogAdapter? log, string fullname)
             {
-                MemoryStream stream;
-                if (!Streams.TryGetValue(fullname, out stream)) 
-                    return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(Array.Empty<Task<CacheCandidate>>());
-
-                return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(new[] {
-                    Task.FromResult(new CacheCandidate(
-                        "in-memory",
-                        new MemoryStream(stream.ToArray())))
-                });
+                if (!_streams.TryGetValue(fullname, out var stream)) yield break;
+                
+                log?.Debug($"In-memory reading of {fullname}");
+                yield return new CacheCandidate(
+                    "in-memory",
+                    new MemoryStream(stream.ToArray()));
             }
 
             /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
-            public async Task TryWriteAsync(string fullname, Func<Stream, Task> write)
+            public async Task TryWriteAsync(ILogAdapter? log, string fullname, Func<Stream, Task> write)
             {
                 var ms = new MemoryStream();
                 await write(ms);
 
+                log?.Debug($"In-memory saving as {fullname}");
                 // Only executed if 'write()' does not throw.
-                Streams[fullname] = ms;
+                _streams[fullname] = ms;
             }
 
-            public InMemoryCache() { }
-
-            public void Add(string key, byte[] bytes)
-            {
-                Streams.Add(key, new MemoryStream(bytes));
-            }
+            public void Add(string key, byte[] bytes) =>_streams.Add(key, new MemoryStream(bytes));
 
             public IEnumerator<KeyValuePair<string, MemoryStream>> GetEnumerator() =>
-                Streams.GetEnumerator();
+                _streams.GetEnumerator();
 
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }

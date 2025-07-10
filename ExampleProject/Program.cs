@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using ExampleProject.Events;
@@ -12,7 +13,10 @@ namespace ExampleProject
     {
         public const string AccountName = "";
         public const string AccountKey = "";
-        public const string LocalCache = @"C:\LokadData\example-cache";
+        public static readonly string LocalCache =
+            RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                ? "/var/Lokad/example-cache"
+                : @"C:\LokadData\example-cache";
         public const string ConnectionString = @"DefaultEndpointsProtocol=https;AccountName=" + AccountName + ";AccountKey=" + AccountKey + ";Container=example";
 
         static async Task Main(string[] args)

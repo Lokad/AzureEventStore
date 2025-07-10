@@ -1,10 +1,9 @@
-﻿using Lokad.AzureEventStore.Projections;
+﻿#nullable enable
+
+using Lokad.AzureEventStore.Projections;
 using Lokad.MemoryMapping;
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,13 +16,22 @@ namespace Lokad.AzureEventStore.Cache
             return new InMemoryFolder();
         }
 
-        public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(string stateName, [EnumeratorCancellation] CancellationToken cancel)
+        public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(
+            ILogAdapter? log,
+            string stateName,
+            [EnumeratorCancellation] CancellationToken cancel)
         {
+            log?.Debug("Enumerating in-memory candidates");
             yield return await Task.FromResult(new InMemoryFolder());
         }
 
-        public Task<bool> Preserve(string stateName, IMemoryMappedFolder folder, CancellationToken cancel)
+        public Task<bool> Preserve(
+            ILogAdapter? log,
+            string stateName,
+            IMemoryMappedFolder folder,
+            CancellationToken cancel)
         {
+            log?.Debug("No preservation of in-memory folder.");
             return Task.FromResult(false);
         }
     }

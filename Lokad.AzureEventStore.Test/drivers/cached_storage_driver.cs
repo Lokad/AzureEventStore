@@ -11,7 +11,7 @@ namespace Lokad.AzureEventStore.Test.drivers
 
         internal override IStorageDriver GetFreshStorageDriver()
         {
-            _cache = @"C:\LokadData\AzureEventStore\FileStorageTests\" + Guid.NewGuid();
+            _cache = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
             return new CacheStorageDriver(base.GetFreshStorageDriver(), _cache);
         }
 
