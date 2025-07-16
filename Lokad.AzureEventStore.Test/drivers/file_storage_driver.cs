@@ -11,7 +11,7 @@ namespace Lokad.AzureEventStore.Test.drivers
 
         internal override IStorageDriver GetFreshStorageDriver()
         {
-            _path = @"C:\LokadData\AzureEventStore\FileStorageTests\" + Guid.NewGuid();
+            _path = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
             return new FileStorageDriver(_path);
         }
 

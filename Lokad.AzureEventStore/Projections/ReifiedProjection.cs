@@ -1,4 +1,5 @@
-﻿using Lokad.AzureEventStore.Streams;
+﻿#nullable enable
+using Lokad.AzureEventStore.Streams;
 using Lokad.MemoryMapping;
 using System;
 using System.Collections.Generic;
@@ -21,17 +22,17 @@ namespace Lokad.AzureEventStore.Projections
         /// <summary>
         ///     Provider of a persistent cache to read and write the projection states.
         /// </summary>
-        private readonly IProjectionCacheProvider _cacheProvider;
+        private readonly IProjectionCacheProvider? _cacheProvider;
 
         /// <summary>
         ///     Provider of a folder to write the projection states as memory-mapped files.
         /// </summary>
-        private readonly IProjectionFolderProvider _folderProvider;
+        private readonly IProjectionFolderProvider? _folderProvider;
 
         /// <summary>
         ///     Final memory mapped folder chosen among the candidates provided by <see cref="_folderProvider"/>.
         /// </summary>
-        private IMemoryMappedFolder _memoryMappedFolder;
+        private IMemoryMappedFolder? _memoryMappedFolder;
 
         /// <summary> Becomes true if the state is possibly inconsistent. </summary>
         /// <remarks> Inconsistent state can be due to errors when parsing or applying events. </remarks>
@@ -47,10 +48,10 @@ namespace Lokad.AzureEventStore.Projections
         public string Name { get; }
 
         /// <summary> For logging. </summary>
-        private readonly ILogAdapter _log;
+        private readonly ILogAdapter? _log;
 
         /// <summary> Disposable handling the loaded external state. Null otherwise. </summary>
-        private IDisposable _disposable { get; set; }
+        private IDisposable? _disposable { get; set; }
 
         /// <summary> 
         ///    True if changes have been applied to this projection since the last time 
@@ -61,9 +62,9 @@ namespace Lokad.AzureEventStore.Projections
 
         public ReifiedProjection(
             IProjection<TEvent, TState> projection, 
-            IProjectionCacheProvider cacheProvider = null, 
-            IProjectionFolderProvider folderProvider = null,
-            ILogAdapter log = null)
+            IProjectionCacheProvider? cacheProvider = null, 
+            IProjectionFolderProvider? folderProvider = null,
+            ILogAdapter? log = null)
         {
             if (projection == null)
                 throw new ArgumentNullException(nameof(projection));
@@ -108,7 +109,7 @@ namespace Lokad.AzureEventStore.Projections
         {
             if (_projection.NeedsMemoryMappedFolder)
             {
-                await foreach(var candidate in _folderProvider.EnumerateCandidates(_projection.FullName, cancel))
+                await foreach(var candidate in _folderProvider.EnumerateCandidates(_log, _projection.FullName, cancel))
                 {
                     try
                     {
@@ -239,10 +240,10 @@ namespace Lokad.AzureEventStore.Projections
 
             var sw = Stopwatch.StartNew();
 
-            IEnumerable<Task<CacheCandidate>> candidates;
+            IAsyncEnumerable<CacheCandidate> candidates;
             try
             {
-                candidates = await _cacheProvider.OpenReadAsync(Name);
+                candidates = await _cacheProvider.OpenReadAsync(_log, Name);
             }
             catch (Exception ex)
             {
@@ -250,12 +251,10 @@ namespace Lokad.AzureEventStore.Projections
                 return false;
             }
 
-            foreach (var candidateTask in candidates)
+            await foreach (var candidate in candidates.WithCancellation(cancel))
             {
-                CacheCandidate candidate;
                 try
                 {
-                    candidate = await candidateTask;
                 }
                 catch (Exception ex)
                 {
@@ -362,7 +361,7 @@ namespace Lokad.AzureEventStore.Projections
             var wrote = 0L;
             try
             {
-                await _cacheProvider.TryWriteAsync(Name, async destination =>
+                await _cacheProvider.TryWriteAsync(_log, Name, async destination =>
                 {
                     try
                     {
@@ -374,7 +373,7 @@ namespace Lokad.AzureEventStore.Projections
                             if (!await _projection.TrySaveAsync(destination, current, cancel))
                             {
                                 _log?.Warning($"[{Name}] projection failed to save.");
-                                throw new Exception("INTERNAL.DO.NOT.SAVE");
+                                throw new InternalDoNotSaveException();
                             }
 
                             if (!destination.CanWrite)
@@ -386,11 +385,11 @@ namespace Lokad.AzureEventStore.Projections
                             wrote = destination.Position;
                         }
                     }
-                    catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") { throw; }
+                    catch (InternalDoNotSaveException) { throw; }
                     catch (Exception e)
                     {
                         _log?.Warning($"[{Name}] while saving to cache.", e);
-                        throw new Exception("INTERNAL.DO.NOT.SAVE", e);
+                        throw new InternalDoNotSaveException(e);
                     }
 
                 }).ConfigureAwait(false);
@@ -407,7 +406,7 @@ namespace Lokad.AzureEventStore.Projections
                 _hasUnsavedChanges = false;
                 return true;
             }
-            catch (Exception e) when (e.Message == "INTERNAL.DO.NOT.SAVE") 
+            catch (InternalDoNotSaveException e)
             {
                 // The inner function asked us not to save, and already logged the reason.
                 // But if an inner exception is included, throw it (preserving the existing
@@ -528,7 +527,7 @@ namespace Lokad.AzureEventStore.Projections
 
             try
             {
-                return await _folderProvider.Preserve(_projection.FullName, _memoryMappedFolder, cancel);
+                return await _folderProvider.Preserve(_log, _projection.FullName, _memoryMappedFolder, cancel);
             }
             catch (Exception e)
             {

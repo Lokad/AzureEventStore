@@ -1,4 +1,6 @@
-﻿using Lokad.AzureEventStore.Projections;
+﻿#nullable enable
+
+using Lokad.AzureEventStore.Projections;
 using Lokad.MemoryMapping;
 using System.Collections.Generic;
 using System.IO;
@@ -6,8 +8,6 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-
-#nullable enable
 
 namespace Lokad.AzureEventStore.Cache
 {
@@ -52,7 +52,10 @@ namespace Lokad.AzureEventStore.Cache
             return new MemoryMappedFolder(fullPath);
         }
 
-        public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(string stateName, [EnumeratorCancellation] CancellationToken cancel)
+        public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(
+            ILogAdapter? log,
+            string stateName,
+            [EnumeratorCancellation] CancellationToken cancel)
         {
             var fullPath = Path.Combine(_path, stateName);
             Directory.CreateDirectory(fullPath);
@@ -65,17 +68,24 @@ namespace Lokad.AzureEventStore.Cache
 
             if (_cacheProvider != null)
             {
-                await _cacheProvider.LoadAsync(stateName, candidate, cancel);
+                await _cacheProvider.LoadAsync(log, stateName, candidate, cancel);
                 yield return candidate;
             }
         }
 
-        public async Task<bool> Preserve(string stateName, IMemoryMappedFolder folder, CancellationToken cancel)
+        public async Task<bool> Preserve(
+            ILogAdapter? log,
+            string stateName,
+            IMemoryMappedFolder folder,
+            CancellationToken cancel)
         {
             if (_cacheProvider == null)
+            {
+                log?.Info($"No cache provided for state {stateName}, no preservation.");
                 return false;
+            }
 
-            await _cacheProvider.UploadToBlobsAsync(stateName, folder, cancel);
+            await _cacheProvider.UploadToBlobsAsync(log, stateName, folder, cancel);
             return true;
         }
     }

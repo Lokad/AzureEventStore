@@ -1,74 +1,85 @@
-﻿using Lokad.AzureEventStore.Projections;
+﻿#nullable enable
+using Lokad.AzureEventStore.Projections;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore.Cache
+namespace Lokad.AzureEventStore.Cache;
+
+/// <summary> Saves projection state to files in a directory.  </summary>
+public sealed class FileCacheProvider : IProjectionCacheProvider
 {
-    /// <summary> Saves projection state to files in a directory.  </summary>
-    public sealed class FileCacheProvider : IProjectionCacheProvider
+    /// <summary> Directory path where we want to store the state. </summary>
+    private readonly string _directory;
+        
+    /// <summary> Optional cache that can fetch a cache for us. </summary>
+    private readonly IProjectionCacheProvider? _foreignProvider;
+
+    public FileCacheProvider(string directory, IProjectionCacheProvider? foreignProvider)
     {
-        private readonly string _directory;
+        _directory = directory;
+        _foreignProvider = foreignProvider;
+    }
+        
+    /// <summary> Construct a projection cache saving to the specified directory. </summary>
+    public FileCacheProvider(string directory) : this(directory, null) {}
 
-        /// <summary> Construct a projection cache saving to the specified directory. </summary>
-        public FileCacheProvider(string directory)
+    /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
+    public Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string stateName)
+    {
+        var path = Path.Combine(_directory, stateName);
+
+        try
         {
-            _directory = directory;
+            Directory.CreateDirectory(_directory);
+            var candidate = new CacheCandidate(
+                "file:" + path,
+                File.OpenRead(path));
+            
+            return Task.FromResult(Enumerable.Repeat(candidate, 1).ToAsyncEnumerable());
+        }
+        catch (IOException)
+        {
+            if (_foreignProvider != null)
+                return _foreignProvider.OpenReadAsync(log, stateName);
+                
+            // Failure to read the file means no cache data is available
+            return Task.FromResult(AsyncEnumerable.Empty<CacheCandidate>());
+        }
+    }
+
+    /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
+    public async Task TryWriteAsync(ILogAdapter? log, string stateName, Func<Stream, Task> write)
+    {
+        var path = Path.Combine(_directory, stateName);
+        log?.Info($"Start writing {stateName} at {path}");
+
+        Stream stream;
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        }
+        catch (IOException)
+        {
+            // Failure to write the file means caching is disabled
+            return;
         }
 
-        /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
-        public Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string stateName)
+        try
         {
-            var path = Path.Combine(_directory, stateName);
-
-            try
-            {
-                Directory.CreateDirectory(_directory);
-                return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(
-                    new[] { Task.FromResult(new CacheCandidate(
-                        "file:" + path,
-                        File.OpenRead(path))) 
-                    });
-            }
-            catch (IOException)
-            {
-                // Failure to read the file means no cache data is available
-                return Task.FromResult<IEnumerable<Task<CacheCandidate>>>(
-                    Array.Empty<Task<CacheCandidate>>());
-            }
+            await write(stream).ConfigureAwait(false);
+            stream.Dispose();
         }
-
-        /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
-        public async Task TryWriteAsync(string stateName, Func<Stream, Task> write)
+        catch
         {
-            var path = Path.Combine(_directory, stateName);
-
-            Stream stream;
-            try
-            {
-                Directory.CreateDirectory(_directory);
-                stream = new FileStream(path, FileMode.Create);
-            }
-            catch (IOException)
-            {
-                // Failure to write the file means caching is disabled
-                return;
-            }
-
-            try
-            {
-                await write(stream).ConfigureAwait(false);
-                stream.Dispose();
-            }
-            catch
-            {
-                // If writing failed, delete the (broken) file.
-                stream.Dispose();
-                try { File.Delete(path); }
-                catch { /* Ignored silently */ }
-                throw;
-            }
+            // If writing failed, delete the (broken) file.
+            stream.Dispose();
+            try { File.Delete(path); }
+            catch { /* Ignored silently */ }
+            throw;
         }
     }
 }

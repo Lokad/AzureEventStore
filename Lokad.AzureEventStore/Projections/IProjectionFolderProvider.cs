@@ -14,6 +14,7 @@ namespace Lokad.AzureEventStore.Projections
         ///    filled by downloading data from blobs.
         /// </summary>
         IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(
+            ILogAdapter? log,
             string stateName, 
             CancellationToken cancel);
     
@@ -28,6 +29,7 @@ namespace Lokad.AzureEventStore.Projections
         /// </summary>
         /// <returns> True if successful </returns>
         Task<bool> Preserve(
+            ILogAdapter? log,
             string stateName, 
             IMemoryMappedFolder folder, 
             CancellationToken cancel);

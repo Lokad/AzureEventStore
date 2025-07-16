@@ -1,8 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>Lokad.AzureEventStore.Test</AssemblyName>
-    <RuntimeIdentifiers>win</RuntimeIdentifiers>
     <OutputType>Library</OutputType>
     <Company>Lokad</Company>
     <Copyright>Copyright © Lokad 2020</Copyright>
@@ -15,6 +14,7 @@
 	<PackageReference Include="Azure.Storage.Blobs" Version="12.13.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.7.1" />
     <PackageReference Include="Moq" Version="4.14.5" />
+    <PackageReference Include="System.Linq.Async" Version="6.0.3" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3">
@@ -25,13 +25,14 @@
   
   <!-- When developing locally, comment out this block and uncomment the one below it. -->
   <ItemGroup>
-    <PackageReference Include="Lokad.AzureEventStore" Version="13.0.1" />
-    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="2.2.0" />
+    <PackageReference Include="Lokad.AzureEventStore" Version="14.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="14.0.0" />
   </ItemGroup>
-  
-  <!--<ItemGroup>
+
+  <!--
+  <ItemGroup>
     <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
-  </ItemGroup>-->
-  
+  </ItemGroup>
+  -->
 </Project>

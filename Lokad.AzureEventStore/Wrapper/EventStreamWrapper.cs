@@ -174,7 +174,7 @@ namespace Lokad.AzureEventStore.Wrapper
 
                 var catchUp = projection.Sequence + 1;
 
-                log?.Info($"[ES init] advancing stream to seq {catchUp}.");
+                log?.Info($"[ES init] advancing stream to seq {catchUp:N0}.");
                 var streamSequence = await stream.DiscardUpTo(catchUp, cancel).ConfigureAwait(false);
 
                 if (cancel.IsCancellationRequested)
@@ -235,7 +235,7 @@ namespace Lokad.AzureEventStore.Wrapper
                 var seq = Stream.Sequence;
 
                 if (_log != null && seq % 1000 == 0)
-                    _log.Info($"[ES read] processing event at seq {seq}.");
+                    _log.Info($"[ES read] processing event at seq {seq:N0}.");
 
                 if (caughtUpWithProjection || seq > _projection.Sequence)
                 {
@@ -251,7 +251,7 @@ namespace Lokad.AzureEventStore.Wrapper
                     }
                     catch (Exception ex)
                     {
-                        _log?.Warning($"[ES read] processing error on event at seq {seq}.", ex);
+                        _log?.Warning($"[ES read] processing error on event at seq {seq:N0}.", ex);
                         _projection.SetPossiblyInconsistent();
                         Quarantine.Add(seq, nextEvent, ex);
                     }

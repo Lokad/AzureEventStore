@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -26,13 +27,13 @@ namespace Lokad.AzureEventStore.Projections
         ///     The key associated with each stream is a name that describes the
         ///     type of stream (blob, file, etc.) and its creation date.
         /// </remarks>
-        Task<IEnumerable<Task<CacheCandidate>>> OpenReadAsync(string stateName);
+        Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string stateName);
 
         /// <summary>
         ///     Open an (initially empty) writing stream for the projection 
         ///     with the specified full name, and invoke the provided method. 
         ///     Will do nothing if cache is not writable.
-        /// </summary>        
-        Task TryWriteAsync(string stateName, Func<Stream, Task> write);
+        /// </summary>
+        Task TryWriteAsync(ILogAdapter? log, string stateName, Func<Stream, Task> write);
     }
 }
