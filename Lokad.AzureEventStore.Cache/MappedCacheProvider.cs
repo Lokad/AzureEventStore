@@ -49,7 +49,7 @@ public sealed class MappedCacheProvider : IProjectionCacheProvider
         return Enumerate(innerEnumerable, stateName);
     }
     
-    private IAsyncEnumerable<CacheCandidate> Enumerate(IAsyncEnumerable<CacheCandidate> fromInner, string stateName)
+    private async IAsyncEnumerable<CacheCandidate> Enumerate(IAsyncEnumerable<CacheCandidate> fromInner, string stateName)
     {
         // First, attempt to use local blobs
         var inDirectory = Directory
@@ -59,49 +59,41 @@ public sealed class MappedCacheProvider : IProjectionCacheProvider
 
         if (inDirectory.Length > 0)
         {
-            return inDirectory.ToAsyncEnumerable()
-                .SelectAwait(fileName =>
-                {
-                    var filePath = Path.Combine(_directory, stateName, fileName);
-                    var result = Task.Run(() => MemoryMap(filePath, null));
-                    // If still enumerating, then the file did not contain a valid cache, and
-                    // so we delete it to avoid reading it again.
-                    DeleteFile(filePath);
-                    return new ValueTask<CacheCandidate>(result);
-                });
-        }
-
-        // If not, fall back to proxy blobs
-        return fromInner
-            .SelectAwait(task =>
+            foreach (var fileName in inDirectory)
             {
-                var copyToLocal = Task.Run(async () =>
-                {
-                    using var remote = task.Contents;
-                    var open = OpenWriteLocal(stateName);
-                    using (var local = open.stream)
-                    {
-                        await remote.CopyToAsync(local).ConfigureAwait(false);
-                    }
-                    return (open.path, task.Name);
-                });
-            
-                var result = Task.Run(async () =>
-                {
-                    var (localPath, remoteName) = await copyToLocal.ConfigureAwait(false);
-                    return MemoryMap(localPath, remoteName);
-                });
-            
+                var filePath = Path.Combine(_directory, stateName, fileName);
+                yield return MemoryMap(filePath, null);
+
                 // If still enumerating, then the file did not contain a valid cache, and
                 // so we delete it to avoid reading it again.
-                Task.Run(async () =>
+                DeleteFile(filePath);
+            }
+        }
+
+        await foreach (var task in fromInner)
+        {
+            var copyToLocal = Task.Run(async () =>
+            {
+                using var remote = task.Contents;
+                var open = OpenWriteLocal(stateName);
+                using (var local = open.stream)
                 {
-                    var (localPath, _) = await copyToLocal.ConfigureAwait(false);
-                    DeleteFile(localPath);
-                });
-                
-                return new ValueTask<CacheCandidate>(result);
+                    await remote.CopyToAsync(local).ConfigureAwait(false);
+                }
+                return (open.path, task.Name);
             });
+
+            var (localPath, remoteName) = await copyToLocal.ConfigureAwait(false);
+            yield return MemoryMap(localPath, remoteName);
+
+            // If still enumerating, then the file did not contain a valid cache, and
+            // so we delete it to avoid reading it again.
+            _ = Task.Run(async () =>
+            {
+                var (localPath, _) = await copyToLocal.ConfigureAwait(false);
+                DeleteFile(localPath);
+            });
+        }
     }
     /// <summary>
     /// Memory-maps the file at the specified path.

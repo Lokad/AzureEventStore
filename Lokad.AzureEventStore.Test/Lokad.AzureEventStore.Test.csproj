@@ -26,7 +26,7 @@
   <!-- When developing locally, comment out this block and uncomment the one below it. -->
   <ItemGroup>
     <PackageReference Include="Lokad.AzureEventStore" Version="14.0.0" />
-    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="14.0.0" />
+    <PackageReference Include="Lokad.AzureEventStore.Cache" Version="3.0.0" />
   </ItemGroup>
 
   <!--
