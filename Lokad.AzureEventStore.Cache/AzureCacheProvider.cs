@@ -92,7 +92,11 @@ namespace Lokad.AzureEventStore.Cache
             var orderedBlobs = await Blobs(stateName);
             return orderedBlobs
                 .ToAsyncEnumerable()
-                .SelectAwait(async blob =>
+                #if NET10_0_OR_GREATER
+                .Select(async (BlobItem blob, CancellationToken cancel) =>
+                #else
+                .SelectAwait(async (blob) =>
+                #endif
                     new CacheCandidate(
                         "blob:" + blob.Name,
                         await _container.GetBlobClient(blob.Name).OpenReadAsync()));
