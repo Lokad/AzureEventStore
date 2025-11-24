@@ -107,7 +107,7 @@ namespace Lokad.AzureEventStore.Projections
         /// </summary>
         public async Task CreateAsync(CancellationToken cancel = default)
         {
-            if (_projection.NeedsMemoryMappedFolder)
+            if (_projection.NeedsMemoryMappedFolder && _folderProvider != null)
             {
                 await foreach(var candidate in _folderProvider.EnumerateCandidates(_log, _projection.FullName, cancel))
                 {
@@ -522,7 +522,7 @@ namespace Lokad.AzureEventStore.Projections
 
         public async Task<bool> PreserveAsync(CancellationToken cancel = default)
         {
-            if (_memoryMappedFolder == null)
+            if (_memoryMappedFolder == null || _folderProvider == null)
                 return false;
 
             try

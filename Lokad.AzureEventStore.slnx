@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="ExampleProject/ExampleProject.csproj" />
+  <Project Path="Lokad.AzureEventStore.Cache/Lokad.AzureEventStore.Cache.csproj" />
+  <Project Path="Lokad.AzureEventStore.Test/Lokad.AzureEventStore.Test.csproj" />
+  <Project Path="Lokad.AzureEventStore.Tool/Lokad.AzureEventStore.Tool.csproj" />
+  <Project Path="Lokad.AzureEventStore/Lokad.AzureEventStore.csproj" />
+</Solution>

@@ -1,4 +1,5 @@
-﻿using Lokad.MemoryMapping;
+﻿#nullable enable
+using Lokad.MemoryMapping;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;

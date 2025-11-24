@@ -32,11 +32,11 @@ namespace Lokad.AzureEventStore.Drivers
             var span = memory.Span;
             var size = checked((ushort)(e.Contents.Length/8));
 
-            MemoryMarshal.Write(span, ref size);
+            MemoryMarshal.Write(span, in size);
             span = span[sizeof(ushort)..];
 
             uint seq = e.Sequence;
-            MemoryMarshal.Write(span, ref seq);
+            MemoryMarshal.Write(span, in seq);
             span = span[sizeof(uint)..];
 
             var payload = e.Contents.Span;
@@ -44,10 +44,10 @@ namespace Lokad.AzureEventStore.Drivers
             span = span[e.Contents.Length..];
 
             uint checksum = Checksum(seq, payload);
-            MemoryMarshal.Write(span, ref checksum);
+            MemoryMarshal.Write(span, in checksum);
             span = span[sizeof(uint)..];
 
-            MemoryMarshal.Write(span, ref size);
+            MemoryMarshal.Write(span, in size);
 
             return 2 // Size
                    + 4 // Sequence
