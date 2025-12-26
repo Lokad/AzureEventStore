@@ -9,84 +9,78 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore.Cache
+namespace Lokad.AzureEventStore.Cache;
+
+/// <summary>
+///     Provides a <see cref="MemoryMappedFolder"/>.
+/// </summary>
+public class MemoryMappedFolderProvider(
+    string path,
+    MemoryMapperCacheProvider? memoryMapperCacheProvider)
+    : IProjectionFolderProvider
 {
     /// <summary>
-    ///     Provides a <see cref="MemoryMappedFolder"/>.
+    ///     Path of the <see cref="MemoryMappedFolder"/>.
     /// </summary>
-    public class MemoryMappedFolderProvider : IProjectionFolderProvider
+    private readonly string _path = path;
+
+    /// <summary>
+    ///     Cache provider to save the <see cref="MemoryMappedFolder"/> entries.
+    /// </summary>
+    private readonly MemoryMapperCacheProvider? _cacheProvider = memoryMapperCacheProvider;
+
+    public IMemoryMappedFolder CreateEmpty(string stateName)
     {
-        /// <summary>
-        ///     Path of the <see cref="MemoryMappedFolder"/>.
-        /// </summary>
-        private readonly string _path;
+        var fullPath = Path.Combine(_path, stateName);
+        Directory.CreateDirectory(fullPath);
 
-        /// <summary>
-        ///     Cache provider to save the <see cref="MemoryMappedFolder"/> entries.
-        /// </summary>
-        private readonly MemoryMapperCacheProvider? _cacheProvider;
-
-        public MemoryMappedFolderProvider(
-            string path, 
-            MemoryMapperCacheProvider? memoryMapperCacheProvider)
+        foreach (var subdirPath in Directory.EnumerateDirectories(fullPath))
         {
-            _path = path;
-            _cacheProvider = memoryMapperCacheProvider;
+            Directory.Delete(subdirPath, recursive: true);
         }
-
-        public IMemoryMappedFolder CreateEmpty(string stateName)
-        {
-            var fullPath = Path.Combine(_path, stateName);
-            Directory.CreateDirectory(fullPath);
-
-            foreach (var subdirPath in Directory.EnumerateDirectories(fullPath))
-            {
-                Directory.Delete(subdirPath, recursive: true);
-            }
  
-            foreach (var filePath in Directory.EnumerateFiles(fullPath))
-            {
-                File.Delete(filePath);
-            }
-
-            return new MemoryMappedFolder(fullPath);
-        }
-
-        public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(
-            ILogAdapter? log,
-            string stateName,
-            [EnumeratorCancellation] CancellationToken cancel)
+        foreach (var filePath in Directory.EnumerateFiles(fullPath))
         {
-            var fullPath = Path.Combine(_path, stateName);
-            Directory.CreateDirectory(fullPath);
-
-            var candidate = new MemoryMappedFolder(fullPath);
-            if (!candidate.IsEmpty())
-            {
-                yield return candidate;
-            }
-
-            if (_cacheProvider != null)
-            {
-                await _cacheProvider.LoadAsync(log, stateName, candidate, cancel);
-                yield return candidate;
-            }
+            File.Delete(filePath);
         }
 
-        public async Task<bool> Preserve(
-            ILogAdapter? log,
-            string stateName,
-            IMemoryMappedFolder folder,
-            CancellationToken cancel)
+        return new MemoryMappedFolder(fullPath);
+    }
+
+    public async IAsyncEnumerable<IMemoryMappedFolder> EnumerateCandidates(
+        ILogAdapter? log,
+        string stateName,
+        [EnumeratorCancellation] CancellationToken cancel)
+    {
+        var fullPath = Path.Combine(_path, stateName);
+        Directory.CreateDirectory(fullPath);
+
+        var candidate = new MemoryMappedFolder(fullPath);
+        if (!candidate.IsEmpty())
         {
-            if (_cacheProvider == null)
-            {
-                log?.Info($"No cache provided for state {stateName}, no preservation.");
-                return false;
-            }
-
-            await _cacheProvider.UploadToBlobsAsync(log, stateName, folder, cancel);
-            return true;
+            yield return candidate;
         }
+
+        if (_cacheProvider != null)
+        {
+            await _cacheProvider.LoadAsync(log, stateName, candidate, cancel);
+            yield return candidate;
+        }
+    }
+
+    public async Task<bool> Preserve(
+        ILogAdapter? log,
+        string stateName,
+        IMemoryMappedFolder folder,
+        CancellationToken cancel)
+    {
+        if (_cacheProvider == null)
+        {
+            log?.Info($"No cache provided for state {stateName}, no preservation.");
+            return false;
+        }
+
+        await _cacheProvider.UploadToBlobsAsync(log, stateName, folder, cancel);
+        return true;
     }
 }

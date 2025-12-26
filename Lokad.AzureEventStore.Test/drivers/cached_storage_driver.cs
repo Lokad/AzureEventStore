@@ -3,30 +3,29 @@ using System.IO;
 using Lokad.AzureEventStore.Drivers;
 using Xunit;
 
-namespace Lokad.AzureEventStore.Test.drivers
+namespace Lokad.AzureEventStore.Test.drivers;
+
+public sealed class cached_storage_driver : azure_storage_driver
 {
-    public sealed class cached_storage_driver : azure_storage_driver
+    private string _cache;
+
+    internal override IStorageDriver GetFreshStorageDriver()
     {
-        private string _cache;
+        _cache = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
+        return new CacheStorageDriver(base.GetFreshStorageDriver(), _cache);
+    }
 
-        internal override IStorageDriver GetFreshStorageDriver()
-        {
-            _cache = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
-            return new CacheStorageDriver(base.GetFreshStorageDriver(), _cache);
-        }
-
-        protected override void DeleteStorageDriver()
-        {
-            base.DeleteStorageDriver();
+    protected override void DeleteStorageDriver()
+    {
+        base.DeleteStorageDriver();
             
-            try
-            {
-                Directory.Delete(_cache, true);
-            }
-            catch
-            {
-                Console.WriteLine($"Failed to delete {_cache}");
-            }
+        try
+        {
+            Directory.Delete(_cache, true);
+        }
+        catch
+        {
+            Console.WriteLine($"Failed to delete {_cache}");
         }
     }
 }

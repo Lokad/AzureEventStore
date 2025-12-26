@@ -11,538 +11,535 @@ using System.Diagnostics.Contracts;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore
+namespace Lokad.AzureEventStore;
+
+/// <summary> 
+/// Connects to a stream and keeps the projected state up-to-date
+/// automatically. Support appending new events. 
+/// </summary>
+public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>> 
+    where TEvent : class where TState : class
 {
-    /// <summary> 
-    /// Connects to a stream and keeps the projected state up-to-date
-    /// automatically. Support appending new events. 
+    /// <summary> Exception thrown during stream initialization. </summary>
+    private Exception _initFailure;
+
+    /// <see cref="IsReady"/>
+    private bool _isReady;
+
+    /// <summary>
+    /// True if the initialization is done and the state can be accessed. 
+    /// Accessing the state before this is true results in an error.
     /// </summary>
-    public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>> 
-        where TEvent : class where TState : class
+    /// <remarks>
+    /// If initialization failed, will throw (including the exception encountered 
+    /// during initialization as an inner exception). Note that since initialization
+    /// is retried forever, this may throw, then return true on the next try.
+    /// </remarks>
+    public bool IsReady 
     {
-        /// <summary> Exception thrown during stream initialization. </summary>
-        private Exception _initFailure;
-
-        /// <see cref="IsReady"/>
-        private bool _isReady;
-
-        /// <summary>
-        /// True if the initialization is done and the state can be accessed. 
-        /// Accessing the state before this is true results in an error.
-        /// </summary>
-        /// <remarks>
-        /// If initialization failed, will throw (including the exception encountered 
-        /// during initialization as an inner exception). Note that since initialization
-        /// is retried forever, this may throw, then return true on the next try.
-        /// </remarks>
-        public bool IsReady 
+        get
         {
-            get
+            if (_isReady) return true;
+            if (_initFailure != null) throw new Exception("EventStreamService initiation is currently failing.", _initFailure);
+            return false;
+        } 
+    }
+
+    /// <summary>
+    /// This task completed when the initialization is complete. 
+    /// </summary>
+    public readonly Task Ready;
+
+    /// <summary> The underlying wrapper. </summary>
+    internal readonly EventStreamWrapper<TEvent, TState> Wrapper;
+
+    /// <summary> The quarantined events. </summary>
+    public readonly EventQuarantine<TEvent> Quarantine;
+
+    private readonly ILogAdapter _log;
+
+    private readonly CancellationToken _cancel;
+
+    private readonly SemaphoreSlim _transactionSemaphore = new(1);
+
+    /// <summary> Initialize and start the service. </summary>
+    /// <remarks> 
+    /// This will start a background task that performs all processing
+    /// and regularly updates the contents.
+    /// </remarks>
+    /// <param name="storage"> Identifies where the event stream data is stored. </param>
+    /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
+    /// <param name="projectionCache"> Used to save projected state. </param>
+    /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
+    /// <param name="log"> Used for logging. </param>
+    /// <param name="cancel"> Stops the background tasks when called. </param>
+    public static EventStreamService<TEvent,TState> StartNew(
+        StorageConfiguration storage,
+        IEnumerable<IProjection<TEvent>> projections,
+        IProjectionCacheProvider projectionCache,
+        IProjectionFolderProvider projectionFolder,
+        ILogAdapter log,
+        CancellationToken cancel)
+    =>
+        new(storage, projections, _ => projectionCache, projectionFolder, log, cancel);
+
+    /// <summary> Initialize and start the service. </summary>
+    /// <remarks> 
+    /// This will start a background task that performs all processing
+    /// and regularly updates the contents.
+    /// </remarks>
+    /// <param name="storage"> Identifies where the event stream data is stored. </param>
+    /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
+    /// <param name="projectionCacheBuilder"> Callback function which builds the cache, called after the the download of the json settings file from Azure. </param>
+    /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
+    /// <param name="log"> Used for logging. </param>
+    /// <param name="cancel"> Stops the background tasks when called. </param>
+    public static EventStreamService<TEvent, TState> StartNew(
+        StorageConfiguration storage,
+        IEnumerable<IProjection<TEvent>> projections,
+        Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+        IProjectionFolderProvider projectionFolder,
+        ILogAdapter log,
+        CancellationToken cancel)
+    =>
+        new(storage, projections, projectionCacheBuilder, projectionFolder, log, cancel);
+
+    /// <remarks>
+    ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
+    ///     that background tasks are being creatd.
+    /// </remarks>
+    private EventStreamService(
+        StorageConfiguration storage,
+        IEnumerable<IProjection<TEvent>> projections,
+        Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+        IProjectionFolderProvider projectionFolderProvider,
+        ILogAdapter log,
+        CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
+    {
+        _log = log;
+        _cancel = cancel;
+        Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolderProvider, log);
+        Quarantine = Wrapper.Quarantine;
+
+        Ready = Task.Run(Initialize, cancel);
+    }
+
+    #region Concurrency boilerplate
+
+    /// <summary> Initialize the wrapper and set <see cref="IsReady"/> to true. </summary>
+    /// <remarks> 
+    /// Upon failure, logs the exception and tries again after a short delay, forever.
+    /// </remarks>
+    private async Task Initialize()
+    {
+        while (!_cancel.IsCancellationRequested)
+        {
+            try
             {
-                if (_isReady) return true;
-                if (_initFailure != null) throw new Exception("EventStreamService initiation is currently failing.", _initFailure);
-                return false;
-            } 
+                await Wrapper.InitializeAsync(_cancel).ConfigureAwait(false);
+                _isReady = true;
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception e)
+            {
+                _log?.Error("Could not initialize EventStreamService", e);
+                _initFailure = e;
+                Wrapper.Reset();                    
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), _cancel).ConfigureAwait(false);
+        }
+    }
+
+    protected override async Task RunAsync(IReadOnlyList<Func<Task>> messages)
+    {
+        if (!IsReady)
+            // Do not do anything until the stream has finished loading.
+            return;
+
+        // Every time we wake up, we expect the wrapper to refresh itself, either
+        // as a consequence of one of the messages (i.e. a write) or because it
+        // detects that a state refresh was requested.
+        var _ = Wrapper.WaitForState();
+
+        foreach (var msg in messages)
+        {
+            try
+            {
+                await msg().ConfigureAwait(false);
+            }
+            catch
+            {
+                // TODO: log this
+            }
         }
 
-        /// <summary>
-        /// This task completed when the initialization is complete. 
-        /// </summary>
-        public readonly Task Ready;
+        // If someone asked for a refresh, and it has not been satisfied by the 
+        // above messages, perform a refresh automatically.
+        if (Wrapper.WaitingForState)
+            await Wrapper.CatchUpAsync(_cancel).ConfigureAwait(false);
+    }
 
-        /// <summary> The underlying wrapper. </summary>
-        internal readonly EventStreamWrapper<TEvent, TState> Wrapper;
+    /// <summary>
+    /// The <see cref="LocalState"/> many not lag behind the <see cref="CurrentState"/>
+    /// longer than this many seconds. 
+    /// </summary>
+    public double RefreshPeriod
+    {
+        get => Period.TotalSeconds;
+        set => Period = TimeSpan.FromSeconds(value);
+    }
 
-        /// <summary> The quarantined events. </summary>
-        public readonly EventQuarantine<TEvent> Quarantine;
+    /// <summary>
+    ///     Enqueues an asynchronous action, which will be performed after all currently
+    ///     queued actions.
+    /// </summary>
+    private Task<T> EnqueueAction<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancel)
+    {
+        if (!IsReady) throw new StreamNotReadyException();
 
-        private readonly ILogAdapter _log;
+        var act = Activity.Current;
 
-        private readonly CancellationToken _cancel;
-
-        private readonly SemaphoreSlim _transactionSemaphore = new SemaphoreSlim(1);
-
-        /// <summary> Initialize and start the service. </summary>
-        /// <remarks> 
-        /// This will start a background task that performs all processing
-        /// and regularly updates the contents.
-        /// </remarks>
-        /// <param name="storage"> Identifies where the event stream data is stored. </param>
-        /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
-        /// <param name="projectionCache"> Used to save projected state. </param>
-        /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
-        /// <param name="log"> Used for logging. </param>
-        /// <param name="cancel"> Stops the background tasks when called. </param>
-        public static EventStreamService<TEvent,TState> StartNew(
-            StorageConfiguration storage,
-            IEnumerable<IProjection<TEvent>> projections,
-            IProjectionCacheProvider projectionCache,
-            IProjectionFolderProvider projectionFolder,
-            ILogAdapter log,
-            CancellationToken cancel)
-        =>
-            new EventStreamService<TEvent, TState>(
-                storage, projections, (EventStream<TEvent> _) => projectionCache, projectionFolder, log, cancel);
-
-        /// <summary> Initialize and start the service. </summary>
-        /// <remarks> 
-        /// This will start a background task that performs all processing
-        /// and regularly updates the contents.
-        /// </remarks>
-        /// <param name="storage"> Identifies where the event stream data is stored. </param>
-        /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
-        /// <param name="projectionCacheBuilder"> Callback function which builds the cache, called after the the download of the json settings file from Azure. </param>
-        /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
-        /// <param name="log"> Used for logging. </param>
-        /// <param name="cancel"> Stops the background tasks when called. </param>
-        public static EventStreamService<TEvent, TState> StartNew(
-            StorageConfiguration storage,
-            IEnumerable<IProjection<TEvent>> projections,
-            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            IProjectionFolderProvider projectionFolder,
-            ILogAdapter log,
-            CancellationToken cancel)
-        =>
-            new EventStreamService<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolder, log, cancel);
-
-        /// <remarks>
-        ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
-        ///     that background tasks are being creatd.
-        /// </remarks>
-        private EventStreamService(
-            StorageConfiguration storage,
-            IEnumerable<IProjection<TEvent>> projections,
-            Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
-            IProjectionFolderProvider projectionFolderProvider,
-            ILogAdapter log,
-            CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
+        // This will store the result of the action
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            
+        async Task Wrapper()
         {
-            _log = log;
-            _cancel = cancel;
-            Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolderProvider, log);
-            Quarantine = Wrapper.Quarantine;
+            var oldAct = Activity.Current;
 
-            Ready = Task.Run(Initialize, cancel);
-        }
-
-        #region Concurrency boilerplate
-
-        /// <summary> Initialize the wrapper and set <see cref="IsReady"/> to true. </summary>
-        /// <remarks> 
-        /// Upon failure, logs the exception and tries again after a short delay, forever.
-        /// </remarks>
-        private async Task Initialize()
-        {
-            while (!_cancel.IsCancellationRequested)
+            // Combine service-level cancellation with action-level cancellation
+            using (var cts = new CancellationTokenSource())
+            using (_cancel.Register(cts.Cancel))
+            using (cancel.Register(cts.Cancel))
             {
+                // Handle cancellation, exception and successful evaluation
                 try
                 {
-                    await Wrapper.InitializeAsync(_cancel).ConfigureAwait(false);
-                    _isReady = true;
-                    return;
+                    // Restore the activity from when we enqueued.
+                    Activity.Current = act;
+
+                    var result = await action(cts.Token);
+                    tcs.TrySetResult(result);
                 }
-                catch (OperationCanceledException) { throw; }
+                catch (OperationCanceledException)
+                {
+                    tcs.TrySetCanceled();
+                }
                 catch (Exception e)
                 {
-                    _log?.Error("Could not initialize EventStreamService", e);
-                    _initFailure = e;
-                    Wrapper.Reset();                    
+                    tcs.TrySetException(e);
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(5), _cancel).ConfigureAwait(false);
+                finally
+                {
+                    Activity.Current = oldAct;
+                }
             }
         }
 
-        protected override async Task RunAsync(IReadOnlyList<Func<Task>> messages)
-        {
-            if (!IsReady)
-                // Do not do anything until the stream has finished loading.
-                return;
+        Post(Wrapper);
+        return tcs.Task;
+    }
 
-            // Every time we wake up, we expect the wrapper to refresh itself, either
-            // as a consequence of one of the messages (i.e. a write) or because it
-            // detects that a state refresh was requested.
-            var _ = Wrapper.WaitForState();
+    #endregion
 
-            foreach (var msg in messages)
-            {
-                try
-                {
-                    await msg().ConfigureAwait(false);
-                }
-                catch
-                {
-                    // TODO: log this
-                }
-            }
+    /// <summary> Utility function for creating an <see cref="Append{TEvent}"/>. </summary>
+    /// <remarks> Does not actually perform the append. </remarks>
+    [Pure]
+    public Append<TEvent> Use(params TEvent[] events) => new(events);
 
-            // If someone asked for a refresh, and it has not been satisfied by the 
-            // above messages, perform a refresh automatically.
-            if (Wrapper.WaitingForState)
-                await Wrapper.CatchUpAsync(_cancel).ConfigureAwait(false);
-        }
+    /// <summary> Utility function for creating an <see cref="Append{TEvent,T}"/>. </summary>
+    /// <remarks> Does not actually perform the append. </remarks>
+    [Pure]
+    public Append<TEvent, T> With<T>(T more, params TEvent[] events) => new(more, events);
 
-        /// <summary>
-        /// The <see cref="LocalState"/> many not lag behind the <see cref="CurrentState"/>
-        /// longer than this many seconds. 
-        /// </summary>
-        public double RefreshPeriod
-        {
-            get => Period.TotalSeconds;
-            set => Period = TimeSpan.FromSeconds(value);
-        }
+    /// <summary> Retrieve the current state. </summary>
+    /// <remarks>
+    /// The returned state includes all events written to the remote stream
+    /// until the moment this function is called.
+    /// </remarks>
+    public async Task<TState> CurrentState(CancellationToken cancel)
+    {
+        if (!IsReady) throw new StreamNotReadyException();
 
-        /// <summary>
-        ///     Enqueues an asynchronous action, which will be performed after all currently
-        ///     queued actions.
-        /// </summary>
-        private Task<T> EnqueueAction<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancel)
+        // We wrap the `WaitForState` task in an outer task, because `EnqueueAction`
+        // causes the background loop to wait for the result of the function---and
+        // the `WaitForState` task relies on the background loop to become completed,
+        // so the background loop waiting for it would result in a deadlock !
+        var task = await EnqueueAction(c => Task.FromResult(Wrapper.WaitForState()), cancel)
+            .ConfigureAwait(false);
+
+        // This waits for the background loop to, somehow, complete a refresh.
+        await task.ConfigureAwait(false);
+
+        return Wrapper.Current;
+    }
+
+    /// <summary> Retrieve the local state. </summary>
+    /// <remarks>
+    /// This state takes into account all events until the last
+    /// call to <see cref="CurrentState"/> or to a member of the
+    /// <see cref="AppendEventsAsync(Func{TState,Append{TEvent}},CancellationToken)"/>
+    /// method family. There may be other events in the remote 
+    /// stream that are not taken into account.
+    /// 
+    /// Use <see cref="CurrentState"/> to take into account 
+    /// remote events as well.
+    /// 
+    /// This property should be used if 1° you don't care about very recent
+    /// remote events (e.g. in a background processing loop that will learn
+    /// about those events in a future iteration, and doesnt care about the
+    /// delay) or 2° if you only care about the outcome of a recent local
+    /// event (such as right after appending it).
+    /// </remarks>
+    public TState LocalState
+    {
+        get
         {
             if (!IsReady) throw new StreamNotReadyException();
-
-            var act = Activity.Current;
-
-            // This will store the result of the action
-            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            
-            async Task Wrapper()
-            {
-                var oldAct = Activity.Current;
-
-                // Combine service-level cancellation with action-level cancellation
-                using (var cts = new CancellationTokenSource())
-                using (_cancel.Register(cts.Cancel))
-                using (cancel.Register(cts.Cancel))
-                {
-                    // Handle cancellation, exception and successful evaluation
-                    try
-                    {
-                        // Restore the activity from when we enqueued.
-                        Activity.Current = act;
-
-                        var result = await action(cts.Token);
-                        tcs.TrySetResult(result);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        tcs.TrySetCanceled();
-                    }
-                    catch (Exception e)
-                    {
-                        tcs.TrySetException(e);
-                    }
-                    finally
-                    {
-                        Activity.Current = oldAct;
-                    }
-                }
-            }
-
-            Post(Wrapper);
-            return tcs.Task;
-        }
-
-        #endregion
-
-        /// <summary> Utility function for creating an <see cref="Append{TEvent}"/>. </summary>
-        /// <remarks> Does not actually perform the append. </remarks>
-        [Pure]
-        public Append<TEvent> Use(params TEvent[] events) => new Append<TEvent>(events);
-
-        /// <summary> Utility function for creating an <see cref="Append{TEvent,T}"/>. </summary>
-        /// <remarks> Does not actually perform the append. </remarks>
-        [Pure]
-        public Append<TEvent, T> With<T>(T more, params TEvent[] events) => new Append<TEvent, T>(more, events);
-
-        /// <summary> Retrieve the current state. </summary>
-        /// <remarks>
-        /// The returned state includes all events written to the remote stream
-        /// until the moment this function is called.
-        /// </remarks>
-        public async Task<TState> CurrentState(CancellationToken cancel)
-        {
-            if (!IsReady) throw new StreamNotReadyException();
-
-            // We wrap the `WaitForState` task in an outer task, because `EnqueueAction`
-            // causes the background loop to wait for the result of the function---and
-            // the `WaitForState` task relies on the background loop to become completed,
-            // so the background loop waiting for it would result in a deadlock !
-            var task = await EnqueueAction(c => Task.FromResult(Wrapper.WaitForState()), cancel)
-                .ConfigureAwait(false);
-
-            // This waits for the background loop to, somehow, complete a refresh.
-            await task.ConfigureAwait(false);
-
             return Wrapper.Current;
         }
+    } 
 
-        /// <summary> Retrieve the local state. </summary>
-        /// <remarks>
-        /// This state takes into account all events until the last
-        /// call to <see cref="CurrentState"/> or to a member of the
-        /// <see cref="AppendEventsAsync(Func{TState,Append{TEvent}},CancellationToken)"/>
-        /// method family. There may be other events in the remote 
-        /// stream that are not taken into account.
-        /// 
-        /// Use <see cref="CurrentState"/> to take into account 
-        /// remote events as well.
-        /// 
-        /// This property should be used if 1° you don't care about very recent
-        /// remote events (e.g. in a background processing loop that will learn
-        /// about those events in a future iteration, and doesnt care about the
-        /// delay) or 2° if you only care about the outcome of a recent local
-        /// event (such as right after appending it).
-        /// </remarks>
-        public TState LocalState
-        {
-            get
-            {
-                if (!IsReady) throw new StreamNotReadyException();
-                return Wrapper.Current;
-            }
-        } 
+    /// <summary> Force the wrapper to catch up with the stream. </summary>
+    public Task CatchUpAsync(CancellationToken cancel) => CurrentState(cancel);
 
-        /// <summary> Force the wrapper to catch up with the stream. </summary>
-        public Task CatchUpAsync(CancellationToken cancel) => CurrentState(cancel);
+    /// <summary> Append events, constructed from the state, to the stream. </summary>
+    /// <remarks> 
+    /// Builder returns array of events to be appended. It may be called more than
+    /// once. 
+    /// </remarks>
+    public Task<AppendResult> AppendEventsAsync(
+        Func<TState, Append<TEvent>> builder, 
+        CancellationToken cancel) 
+    =>
+        EnqueueAction(c => Wrapper.AppendEventsAsync(builder, c), cancel);
 
-        /// <summary> Append events, constructed from the state, to the stream. </summary>
-        /// <remarks> 
-        /// Builder returns array of events to be appended. It may be called more than
-        /// once. 
-        /// </remarks>
-        public Task<AppendResult> AppendEventsAsync(
-            Func<TState, Append<TEvent>> builder, 
-            CancellationToken cancel) 
-        =>
-            EnqueueAction(c => Wrapper.AppendEventsAsync(builder, c), cancel);
-
-        /// <summary> Append events, constructed from the state, to the stream. </summary>
-        /// <remarks> 
-        /// Builder returns array of events to be appended, and additional data
-        /// that will be returned by this method. Builder may be called more than
-        /// once. 
-        /// </remarks>
-        public Task<AppendResult<T>> AppendEventsAsync<T>(
-            Func<TState, Append<TEvent, T>> builder,
-            CancellationToken cancel) 
-        =>
-            EnqueueAction(c => Wrapper.AppendEventsAsync(builder, c), cancel);
+    /// <summary> Append events, constructed from the state, to the stream. </summary>
+    /// <remarks> 
+    /// Builder returns array of events to be appended, and additional data
+    /// that will be returned by this method. Builder may be called more than
+    /// once. 
+    /// </remarks>
+    public Task<AppendResult<T>> AppendEventsAsync<T>(
+        Func<TState, Append<TEvent, T>> builder,
+        CancellationToken cancel) 
+    =>
+        EnqueueAction(c => Wrapper.AppendEventsAsync(builder, c), cancel);
         
 
-        /// <summary> Append events to the stream. </summary>
-        /// <remarks> 
-        /// This is a dangerous method, because it always adds the event to the stream
-        /// regardless of state (this can lead to duplicates in multi-writer scenarios, 
-        /// and so on). Make sure you know what you're doing. 
-        /// </remarks>
-        public Task<AppendResult> AppendEventsAsync(
-            TEvent[] events,
-            CancellationToken cancel = default)
-        =>
-            EnqueueAction(c => Wrapper.AppendEventsAsync(events, c), cancel);
+    /// <summary> Append events to the stream. </summary>
+    /// <remarks> 
+    /// This is a dangerous method, because it always adds the event to the stream
+    /// regardless of state (this can lead to duplicates in multi-writer scenarios, 
+    /// and so on). Make sure you know what you're doing. 
+    /// </remarks>
+    public Task<AppendResult> AppendEventsAsync(
+        TEvent[] events,
+        CancellationToken cancel = default)
+    =>
+        EnqueueAction(c => Wrapper.AppendEventsAsync(events, c), cancel);
 
-        /// <summary> Run a transaction on the stream. </summary>
-        /// <remarks> 
-        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
-        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
-        ///     to access the state (initially, will be the current state, but after 
-        ///     events are appended to the transaction, the transaction state will reflect
-        ///     those events as well).
-        ///     
-        ///     If the callback does not throw, the events are appended to the stream. 
-        ///     If the stream has been modified in the mean time, then the callback will
-        ///     be replayed with the new up-to-date state. 
-        ///     
-        ///     Wait a transaction to end before starting a new one as it would create conflicts
-        ///     when writing events.
-        /// </remarks>
-        /// <returns>
-        ///     The value returned by the callback, along with details about how many events
-        ///     were written and up to which sequence. 
-        /// </returns>
-        public async Task<AppendResult<T>> TransactionAsync<T>(
-            Func<Transaction<TEvent, TState>, T> builder,
-            CancellationToken cancel = default)
-        {
-            await _transactionSemaphore.WaitAsync(cancel);
-            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
+    /// <summary> Run a transaction on the stream. </summary>
+    /// <remarks> 
+    ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+    ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+    ///     to access the state (initially, will be the current state, but after 
+    ///     events are appended to the transaction, the transaction state will reflect
+    ///     those events as well).
+    ///     
+    ///     If the callback does not throw, the events are appended to the stream. 
+    ///     If the stream has been modified in the mean time, then the callback will
+    ///     be replayed with the new up-to-date state. 
+    ///     
+    ///     Wait a transaction to end before starting a new one as it would create conflicts
+    ///     when writing events.
+    /// </remarks>
+    /// <returns>
+    ///     The value returned by the callback, along with details about how many events
+    ///     were written and up to which sequence. 
+    /// </returns>
+    public async Task<AppendResult<T>> TransactionAsync<T>(
+        Func<Transaction<TEvent, TState>, T> builder,
+        CancellationToken cancel = default)
+    {
+        await _transactionSemaphore.WaitAsync(cancel);
+        using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
 
-            var thrownByBuilder = false;
-            var attempts = 0;
-            Transaction<TEvent, TState> transaction = null;
-            T result;
-            IReifiedProjection<TEvent, TState> projection = null;
-            uint cloneSequence;
+        var thrownByBuilder = false;
+        var attempts = 0;
+        Transaction<TEvent, TState> transaction = null;
+        T result;
+        IReifiedProjection<TEvent, TState> projection = null;
+        uint cloneSequence;
             
-            try
-            {
-                while (true)
-                {
-                    ++attempts;
-                    act?.AddTag(Logging.Attempts, attempts);
-
-                    projection = GetProjectionClone(cancel);
-                    cloneSequence = projection.Sequence;
-                    transaction = new Transaction<TEvent, TState>(projection);
-
-                    thrownByBuilder = true;
-                    result = builder(transaction);
-                    thrownByBuilder = false;
-
-                    TransactionResult<T> task;
-                    if (transaction.Events.Length == 0)
-                    {
-                        transaction.HandleCommit(); 
-                        task = new TransactionResult<T>(new AppendResult<T>(0, 0, result), true);
-                    }
-                    else
-                        task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, result, cloneSequence, c), cancel);
-
-                    if (task.Success)
-                        return task.Result;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                transaction?.HandleAbort();
-
-                throw;
-            }
-            catch (Exception e)
-            {
-                if (!thrownByBuilder)
-                    _log?.Error("While appending events", e);
-
-                transaction?.HandleAbort();
-
-                throw;
-            }
-            finally
-            {
-                _transactionSemaphore.Release();
-            }
-        }
-
-        /// <summary> Run a transaction on the stream. </summary>
-        /// <remarks> 
-        ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
-        ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
-        ///     to access the state (initially, will be the current state, but after 
-        ///     events are appended to the transaction, the transaction state will reflect
-        ///     those events as well).
-        ///     
-        ///     If the callback does not throw, the events are appended to the stream. 
-        ///     If the stream has been modified in the mean time, then the callback will
-        ///     be replayed with the new up-to-date state. 
-        ///     
-        ///     Wait a transaction to end before starting a new one as it would create conflicts
-        ///     when writing events.
-        /// </remarks>
-        /// <returns>
-        ///     How many events were written and up to which sequence. 
-        /// </returns>
-        public async Task<AppendResult> TransactionAsync(
-            Action<Transaction<TEvent, TState>> builder,
-            CancellationToken cancel = default)
+        try
         {
-            await _transactionSemaphore.WaitAsync(cancel);
-            using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
-
-            var thrownByBuilder = false;
-            var attempts = 0;
-            Transaction<TEvent, TState> transaction = null;
-            IReifiedProjection<TEvent, TState> projection = null;
-            uint cloneSequence;
-            try
+            while (true)
             {
-                while (true)
+                ++attempts;
+                act?.AddTag(Logging.Attempts, attempts);
+
+                projection = GetProjectionClone(cancel);
+                cloneSequence = projection.Sequence;
+                transaction = new Transaction<TEvent, TState>(projection);
+
+                thrownByBuilder = true;
+                result = builder(transaction);
+                thrownByBuilder = false;
+
+                TransactionResult<T> task;
+                if (transaction.Events.Length == 0)
                 {
-                    ++attempts;
-                    act?.AddTag(Logging.Attempts, attempts);
-
-                    projection = GetProjectionClone(cancel);
-                    cloneSequence = projection.Sequence;
-                    transaction = new Transaction<TEvent, TState>(projection);
-
-                    thrownByBuilder = true;
-                    builder(transaction);
-                    thrownByBuilder = false;
-
-                    TransactionResult task;
-                    if (transaction.Events.Length == 0)
-                    {
-                        transaction.HandleCommit(); 
-                        task = new TransactionResult(new AppendResult(0, 0), true);
-                    }
-                    else
-                        task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, cloneSequence, c), cancel);
-
-                    if (task.Success)
-                        return task.Result;
+                    transaction.HandleCommit(); 
+                    task = new TransactionResult<T>(new AppendResult<T>(0, 0, result), true);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                transaction?.HandleAbort();
+                else
+                    task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, result, cloneSequence, c), cancel);
 
-                throw;
-            }
-            catch (Exception e)
-            {
-                if (!thrownByBuilder)
-                    _log?.Error("While appending events", e);
-
-                transaction?.HandleAbort();
-
-                throw;
-            }
-            finally
-            {
-                _transactionSemaphore.Release();
+                if (task.Success)
+                    return task.Result;
             }
         }
+        catch (OperationCanceledException)
+        {
+            transaction?.HandleAbort();
+
+            throw;
+        }
+        catch (Exception e)
+        {
+            if (!thrownByBuilder)
+                _log?.Error("While appending events", e);
+
+            transaction?.HandleAbort();
+
+            throw;
+        }
+        finally
+        {
+            _transactionSemaphore.Release();
+        }
+    }
+
+    /// <summary> Run a transaction on the stream. </summary>
+    /// <remarks> 
+    ///     The callback should use <see cref="Transaction{TEvent, TState}.Add(TEvent)"/>
+    ///     to add new events as part of the transaction, and <see cref="Transaction{TEvent, TState}.State"/>
+    ///     to access the state (initially, will be the current state, but after 
+    ///     events are appended to the transaction, the transaction state will reflect
+    ///     those events as well).
+    ///     
+    ///     If the callback does not throw, the events are appended to the stream. 
+    ///     If the stream has been modified in the mean time, then the callback will
+    ///     be replayed with the new up-to-date state. 
+    ///     
+    ///     Wait a transaction to end before starting a new one as it would create conflicts
+    ///     when writing events.
+    /// </remarks>
+    /// <returns>
+    ///     How many events were written and up to which sequence. 
+    /// </returns>
+    public async Task<AppendResult> TransactionAsync(
+        Action<Transaction<TEvent, TState>> builder,
+        CancellationToken cancel = default)
+    {
+        await _transactionSemaphore.WaitAsync(cancel);
+        using var act = Logging.Stream.StartActivity("EventStreamWrapper.TransactionAsync");
+
+        var thrownByBuilder = false;
+        var attempts = 0;
+        Transaction<TEvent, TState> transaction = null;
+        uint cloneSequence;
+        try
+        {
+            while (true)
+            {
+                ++attempts;
+                act?.AddTag(Logging.Attempts, attempts);
+
+                var projection = GetProjectionClone(cancel);
+                cloneSequence = projection.Sequence;
+                transaction = new Transaction<TEvent, TState>(projection);
+
+                thrownByBuilder = true;
+                builder(transaction);
+                thrownByBuilder = false;
+
+                TransactionResult task;
+                if (transaction.Events.Length == 0)
+                {
+                    transaction.HandleCommit(); 
+                    task = new TransactionResult(new AppendResult(0, 0), true);
+                }
+                else
+                    task = await EnqueueAction(c => Wrapper.TryCommitTransactionAsync(transaction, cloneSequence, c), cancel);
+
+                if (task.Success)
+                    return task.Result;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            transaction?.HandleAbort();
+
+            throw;
+        }
+        catch (Exception e)
+        {
+            if (!thrownByBuilder)
+                _log?.Error("While appending events", e);
+
+            transaction?.HandleAbort();
+
+            throw;
+        }
+        finally
+        {
+            _transactionSemaphore.Release();
+        }
+    }
         
 
 
-        /// <summary> Attempt to save the projection to the cache. </summary>
-        public Task TrySaveAsync(CancellationToken cancel = default) =>
-            Wrapper.TrySaveAsync(cancel);
+    /// <summary> Attempt to save the projection to the cache. </summary>
+    public Task TrySaveAsync(CancellationToken cancel = default) =>
+        Wrapper.TrySaveAsync(cancel);
 
-        /// <summary>
-        ///     The number of events to be passed to the projection before
-        ///     performing upkeep operations like attempting a save/load cycle of the projection.
-        /// </summary>
-        /// <remarks>
-        ///     Due to performance considerations, this number may be slightly 
-        ///     exceeded by a few *tens of thousands* of events.
-        ///     
-        ///     The save/load cycle is attempted ; if saving fails, failure is
-        ///     ignored and stream loading continues. If saving succeeds but 
-        ///     loading fails, the stream service enters a fully broken state.
-        ///     
-        ///     Events are only counted during a continuous catch-up phase. 
-        ///     Every time the projection catches up with the stream, the 
-        ///     event count is reset to zero. This means that this limit is 
-        ///     really only expected to be hit during the initial catch-up.
-        /// </remarks>
-        public uint EventsBetweenUpkeepOpportunities
-        {
-            get => Wrapper.EventsBetweenUpkeepOpportunities ;
-            set => Wrapper.EventsBetweenUpkeepOpportunities  = value;
-        }
+    /// <summary>
+    ///     The number of events to be passed to the projection before
+    ///     performing upkeep operations like attempting a save/load cycle of the projection.
+    /// </summary>
+    /// <remarks>
+    ///     Due to performance considerations, this number may be slightly 
+    ///     exceeded by a few *tens of thousands* of events.
+    ///     
+    ///     The save/load cycle is attempted ; if saving fails, failure is
+    ///     ignored and stream loading continues. If saving succeeds but 
+    ///     loading fails, the stream service enters a fully broken state.
+    ///     
+    ///     Events are only counted during a continuous catch-up phase. 
+    ///     Every time the projection catches up with the stream, the 
+    ///     event count is reset to zero. This means that this limit is 
+    ///     really only expected to be hit during the initial catch-up.
+    /// </remarks>
+    public uint EventsBetweenUpkeepOpportunities
+    {
+        get => Wrapper.EventsBetweenUpkeepOpportunities ;
+        set => Wrapper.EventsBetweenUpkeepOpportunities  = value;
+    }
 
-        /// <summary>
-        ///     Consume the current projection's clone, if there is none available, enqueue the cloning.
-        ///     The projection is cloned again by the <see cref="Wrapper"/> when checking for new events.
-        /// </summary>
-        private IReifiedProjection<TEvent, TState> GetProjectionClone(CancellationToken cancel)
-        {
-            var candidate = Wrapper.GetCloneProjection();
-            if (candidate != null)
-                return candidate;
+    /// <summary>
+    ///     Consume the current projection's clone, if there is none available, enqueue the cloning.
+    ///     The projection is cloned again by the <see cref="Wrapper"/> when checking for new events.
+    /// </summary>
+    private IReifiedProjection<TEvent, TState> GetProjectionClone(CancellationToken cancel)
+    {
+        var candidate = Wrapper.GetCloneProjection();
+        if (candidate != null)
+            return candidate;
 
-            using var act = Logging.Drivers.StartActivity("AzureStorageDriver.EnqueueProjectionClone");
-            return Task.Run(async() => await EnqueueAction(_ => Task.FromResult(Wrapper.Clone()), cancel)).Result;
-        }
+        using var act = Logging.Drivers.StartActivity("AzureStorageDriver.EnqueueProjectionClone");
+        return Task.Run(async() => await EnqueueAction(_ => Task.FromResult(Wrapper.Clone()), cancel)).Result;
     }
 }

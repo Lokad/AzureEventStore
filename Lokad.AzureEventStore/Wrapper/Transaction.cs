@@ -2,118 +2,117 @@
 using System;
 using System.Collections.Generic;
 
-namespace Lokad.AzureEventStore.Wrapper
+namespace Lokad.AzureEventStore.Wrapper;
+
+/// <summary>
+///     A transaction supports adding several events in succession, and checking
+///     the state after each event. The actual events (and corresponding state 
+///     changes) are only applied if the transaction is not aborted, and no 
+///     exception is thrown by the function operating the transaction.
+/// </summary>
+/// <see cref="EventStreamService{TEvent, TState}.TransactionAsync{T}(Func{Transaction{TEvent, TState}, T}, System.Threading.CancellationToken)"/>
+/// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync{T}(Transaction{TEvent, TState}, T, System.Threading.CancellationToken)"/>
+/// <see cref="EventStreamService{TEvent, TState}.TransactionAsync(Action{Transaction{TEvent, TState}}, System.Threading.CancellationToken)"/>
+/// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync(Transaction{TEvent, TState}, System.Threading.CancellationToken)"/>
+public sealed class Transaction<TEvent, TState>
+    where TState : class
+    where TEvent : class
 {
+    /// <summary> Delegate invoked by event <see cref="OnAbort"/> </summary>
+    public delegate void AbortHandler();
+
+    /// <summary> Delegate invoked by event <see cref="OnCommit"/> </summary>
+    public delegate void CommitHandler(IReadOnlyList<TEvent> events);
+
+    /// <summary> Event invoked if the transaction is aborted.  </summary>
+    public event AbortHandler OnAbort;
+
+    /// <summary> Event is invoked if the transaction is committed. </summary>
+    public event CommitHandler OnCommit;
+
     /// <summary>
-    ///     A transaction supports adding several events in succession, and checking
-    ///     the state after each event. The actual events (and corresponding state 
-    ///     changes) are only applied if the transaction is not aborted, and no 
-    ///     exception is thrown by the function operating the transaction.
+    ///     Any events added to the transaction are kept here. 
     /// </summary>
-    /// <see cref="EventStreamService{TEvent, TState}.TransactionAsync{T}(Func{Transaction{TEvent, TState}, T}, System.Threading.CancellationToken)"/>
-    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync{T}(Transaction{TEvent, TState}, T, System.Threading.CancellationToken)"/>
-    /// <see cref="EventStreamService{TEvent, TState}.TransactionAsync(Action{Transaction{TEvent, TState}}, System.Threading.CancellationToken)"/>
-    /// <see cref="EventStreamWrapper{TEvent, TState}.TransactionAsync(Transaction{TEvent, TState}, System.Threading.CancellationToken)"/>
-    public sealed class Transaction<TEvent, TState>
-        where TState : class
-        where TEvent : class
+    private readonly List<TEvent> _events = [];
+
+    /// <summary>
+    ///     All the events that were added to this transaction. 
+    ///     If aborted, will always return an empty array.
+    /// </summary>
+    internal TEvent[] Events => Aborted || _events.Count == 0 
+        ? [] 
+        : _events.ToArray();
+
+    /// <summary>
+    ///     Used to compute the current state after every event is added. 
+    /// </summary>
+    private readonly IReifiedProjection<TEvent, TState> _projection;
+
+    /// <summary>
+    ///     Becomes true when <see cref="Abort"/> is called.
+    /// </summary>
+    public bool Aborted { get; private set; }
+
+    /// <summary>
+    ///     The current state within this transaction. This includes all events
+    ///     that were already present in the stream, and all events that were
+    ///     added to the transaction. 
+    /// </summary>
+    public TState State => Aborted
+        ? throw new InvalidOperationException("Transaction was aborted")
+        : _projection.Current;
+
+    /// <summary>
+    ///     The (simulated) sequence number. Starts at the current sequence number,
+    ///     incremented every time an event is added to the transaction. 
+    /// </summary>
+    public uint Sequence => Aborted
+        ? throw new InvalidOperationException("Transaction was aborted")
+        : _projection.Sequence;
+
+    /// <summary> Add an event to the transaction. </summary>
+    public void Add(TEvent evt)
     {
-        /// <summary> Delegate invoked by event <see cref="OnAbort"/> </summary>
-        public delegate void AbortHandler();
+        if (Aborted)
+            throw new InvalidOperationException("Transaction was aborted");
 
-        /// <summary> Delegate invoked by event <see cref="OnCommit"/> </summary>
-        public delegate void CommitHandler(IReadOnlyList<TEvent> events);
+        // First apply to projection: it may throw if invalid
+        _projection.Apply(_projection.Sequence + 1, evt);
+        _events.Add(evt);
+    }
 
-        /// <summary> Event invoked if the transaction is aborted.  </summary>
-        public event AbortHandler OnAbort;
+    /// <summary>
+    ///     Mark the transaction as aborted. No new events can be added, and no 
+    ///     events will be written to the stream as a consequence of this 
+    ///     transaction. 
+    /// </summary>
+    public void Abort() => Aborted = true;
 
-        /// <summary> Event is invoked if the transaction is committed. </summary>
-        public event CommitHandler OnCommit;
+    /// <summary>
+    ///     Method called when the transaction is confirmed to have been aborted.
+    /// </summary>
+    internal void HandleAbort()
+    {
+        OnAbort?.Invoke();
+    }
 
-        /// <summary>
-        ///     Any events added to the transaction are kept here. 
-        /// </summary>
-        private readonly List<TEvent> _events = new List<TEvent>();
+    /// <summary>
+    ///     Method called when the transaction has a reached a point where it can
+    ///     be considered committed, because: all its events were written, or
+    ///     it produced no events, or it was aborted. The two former cases invoke
+    ///     <see cref="OnCommit"/>, the latter <see cref="OnAbort"/>.
+    /// </summary>
+    internal void HandleCommit()
+    {
+        if (Aborted)
+            HandleAbort();
+        else
+            OnCommit?.Invoke(_events);
+    }
 
-        /// <summary>
-        ///     All the events that were added to this transaction. 
-        ///     If aborted, will always return an empty array.
-        /// </summary>
-        internal TEvent[] Events => Aborted || _events.Count == 0 
-            ? Array.Empty<TEvent>() 
-            : _events.ToArray();
-
-        /// <summary>
-        ///     Used to compute the current state after every event is added. 
-        /// </summary>
-        private readonly IReifiedProjection<TEvent, TState> _projection;
-
-        /// <summary>
-        ///     Becomes true when <see cref="Abort"/> is called.
-        /// </summary>
-        public bool Aborted { get; private set; }
-
-        /// <summary>
-        ///     The current state within this transaction. This includes all events
-        ///     that were already present in the stream, and all events that were
-        ///     added to the transaction. 
-        /// </summary>
-        public TState State => Aborted
-            ? throw new InvalidOperationException("Transaction was aborted")
-            : _projection.Current;
-
-        /// <summary>
-        ///     The (simulated) sequence number. Starts at the current sequence number,
-        ///     incremented every time an event is added to the transaction. 
-        /// </summary>
-        public uint Sequence => Aborted
-            ? throw new InvalidOperationException("Transaction was aborted")
-            : _projection.Sequence;
-
-        /// <summary> Add an event to the transaction. </summary>
-        public void Add(TEvent evt)
-        {
-            if (Aborted)
-                throw new InvalidOperationException("Transaction was aborted");
-
-            // First apply to projection: it may throw if invalid
-            _projection.Apply(_projection.Sequence + 1, evt);
-            _events.Add(evt);
-        }
-
-        /// <summary>
-        ///     Mark the transaction as aborted. No new events can be added, and no 
-        ///     events will be written to the stream as a consequence of this 
-        ///     transaction. 
-        /// </summary>
-        public void Abort() => Aborted = true;
-
-        /// <summary>
-        ///     Method called when the transaction is confirmed to have been aborted.
-        /// </summary>
-        internal void HandleAbort()
-        {
-            OnAbort?.Invoke();
-        }
-
-        /// <summary>
-        ///     Method called when the transaction has a reached a point where it can
-        ///     be considered committed, because: all its events were written, or
-        ///     it produced no events, or it was aborted. The two former cases invoke
-        ///     <see cref="OnCommit"/>, the latter <see cref="OnAbort"/>.
-        /// </summary>
-        internal void HandleCommit()
-        {
-            if (Aborted)
-                HandleAbort();
-            else
-                OnCommit?.Invoke(_events);
-        }
-
-        internal Transaction(IReifiedProjection<TEvent, TState> proj)
-        {
-            _events = new List<TEvent>();
-            _projection = proj;
-        }
+    internal Transaction(IReifiedProjection<TEvent, TState> proj)
+    {
+        _events = [];
+        _projection = proj;
     }
 }

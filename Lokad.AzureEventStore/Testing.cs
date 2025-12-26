@@ -10,113 +10,111 @@ using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Streams;
 
-namespace Lokad.AzureEventStore
+namespace Lokad.AzureEventStore;
+
+/// <summary> Methods for testing code based on this library. </summary>
+public static class Testing
 {
-    /// <summary> Methods for testing code based on this library. </summary>
-    public static class Testing
+    /// <summary> Retrieve the internal <see cref="EventStream{TEvent}"/> object from a service. </summary>        
+    public static EventStream<TEvent> GetStream<TEvent,TState>(EventStreamService<TEvent,TState> ess) 
+        where TEvent : class 
+        where TState : class
     {
-        /// <summary> Retrieve the internal <see cref="EventStream{TEvent}"/> object from a service. </summary>        
-        public static EventStream<TEvent> GetStream<TEvent,TState>(EventStreamService<TEvent,TState> ess) 
-            where TEvent : class 
-            where TState : class
+        return ess.Wrapper.Stream;
+    }
+
+    /// <summary> Retrieves a list of all events written to a stream so far. </summary>
+    public static Task<IReadOnlyList<KeyValuePair<uint, TEvent>>> GetEvents<TEvent, TState>(
+        EventStreamService<TEvent, TState> ess,
+        CancellationToken cancel = default)
+        where TEvent : class
+        where TState : class
+    {
+        return GetEvents(GetStream(ess), cancel);
+    }
+
+    /// <summary> Retrieves a list of all events written to a stream so far. </summary>
+    public static async Task<IReadOnlyList<KeyValuePair<uint, TEvent>>> GetEvents<TEvent>(
+        EventStream<TEvent> stream,
+        CancellationToken cancel = default)
+        where TEvent : class
+    {
+        // Copy the stream to have it reset to position 0
+        stream = new EventStream<TEvent>(stream.Storage);
+
+        var list = new List<KeyValuePair<uint, TEvent>>();
+
+        Func<bool> finishFetch;
+
+        do
         {
-            return ess.Wrapper.Stream;
-        }
+            var fetchTask = stream.BackgroundFetchAsync(cancel);
 
-        /// <summary> Retrieves a list of all events written to a stream so far. </summary>
-        public static Task<IReadOnlyList<KeyValuePair<uint, TEvent>>> GetEvents<TEvent, TState>(
-            EventStreamService<TEvent, TState> ess,
-            CancellationToken cancel = default(CancellationToken))
-            where TEvent : class
-            where TState : class
-        {
-            return GetEvents(GetStream(ess), cancel);
-        }
+            while (stream.TryGetNext() is { } nextEvent)                
+                list.Add(new KeyValuePair<uint, TEvent>(stream.Sequence, nextEvent));
 
-        /// <summary> Retrieves a list of all events written to a stream so far. </summary>
-        public static async Task<IReadOnlyList<KeyValuePair<uint, TEvent>>> GetEvents<TEvent>(
-            EventStream<TEvent> stream,
-            CancellationToken cancel = default(CancellationToken))
-            where TEvent : class
-        {
-            // Copy the stream to have it reset to position 0
-            stream = new EventStream<TEvent>(stream.Storage);
+            finishFetch = await fetchTask;
 
-            var list = new List<KeyValuePair<uint, TEvent>>();
+        } while (finishFetch());
 
-            Func<bool> finishFetch;
+        return list;
+    }
 
-            do
-            {
-                var fetchTask = stream.BackgroundFetchAsync(cancel);
+    /// <summary> Returns a configuration for an in-memory storage driver. </summary>
+    public static StorageConfiguration InMemory
+    {
+        get {  return new StorageConfiguration(new MemoryStorageDriver()); }
+    }
 
-                TEvent nextEvent;
-                while ((nextEvent = stream.TryGetNext()) != null)                
-                    list.Add(new KeyValuePair<uint, TEvent>(stream.Sequence, nextEvent));
+    /// <summary> Returns a configuration for an in-memory storage driver with initial data. </summary>
+    public static StorageConfiguration Initialize<TEvent>(params TEvent[] events) where TEvent : class
+    {
+        var msd = new MemoryStorageDriver();
+        var ms = new MigrationStream<TEvent>(msd);
 
-                finishFetch = await fetchTask;
-
-            } while (finishFetch());
-
-            return list;
-        }
-
-        /// <summary> Returns a configuration for an in-memory storage driver. </summary>
-        public static StorageConfiguration InMemory
-        {
-            get {  return new StorageConfiguration(new MemoryStorageDriver()); }
-        }
-
-        /// <summary> Returns a configuration for an in-memory storage driver with initial data. </summary>
-        public static StorageConfiguration Initialize<TEvent>(params TEvent[] events) where TEvent : class
-        {
-            var msd = new MemoryStorageDriver();
-            var ms = new MigrationStream<TEvent>(msd);
-
-            ms.WriteAsync(events.Select((e, i) => new KeyValuePair<uint, TEvent>((uint) (i + 1), e)))
-                .Wait();
+        ms.WriteAsync(events.Select((e, i) => new KeyValuePair<uint, TEvent>((uint) (i + 1), e)))
+            .Wait();
  
-            return new StorageConfiguration(msd);
-        }
+        return new StorageConfiguration(msd);
+    }
 
-        /// <summary> Saves projection state to memory.  </summary>
-        public sealed class InMemoryCache : IProjectionCacheProvider, IEnumerable<KeyValuePair<string, MemoryStream>>
+    /// <summary> Saves projection state to memory.  </summary>
+    public sealed class InMemoryCache : IProjectionCacheProvider, IEnumerable<KeyValuePair<string, MemoryStream>>
+    {
+        private readonly Dictionary<string, MemoryStream> _streams = new ();
+            
+        public IReadOnlyDictionary<string, MemoryStream> Streams => _streams;
+
+        /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
+        public Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string fullname) =>
+            Task.FromResult(OpenReadAsyncInternal(log, fullname));
+            
+        private async IAsyncEnumerable<CacheCandidate> OpenReadAsyncInternal(ILogAdapter? log, string fullname)
         {
-            private readonly Dictionary<string, MemoryStream> _streams = new ();
-            
-            public IReadOnlyDictionary<string, MemoryStream> Streams => _streams;
-
-            /// <see cref="IProjectionCacheProvider.OpenReadAsync"/>
-            public Task<IAsyncEnumerable<CacheCandidate>> OpenReadAsync(ILogAdapter? log, string fullname) =>
-                Task.FromResult(OpenReadAsyncInternal(log, fullname));
-            
-            private async IAsyncEnumerable<CacheCandidate> OpenReadAsyncInternal(ILogAdapter? log, string fullname)
-            {
-                if (!_streams.TryGetValue(fullname, out var stream)) yield break;
+            if (!_streams.TryGetValue(fullname, out var stream)) yield break;
                 
-                log?.Debug($"In-memory reading of {fullname}");
-                yield return new CacheCandidate(
-                    "in-memory",
-                    new MemoryStream(stream.ToArray()));
-            }
-
-            /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
-            public async Task TryWriteAsync(ILogAdapter? log, string fullname, Func<Stream, Task> write)
-            {
-                var ms = new MemoryStream();
-                await write(ms);
-
-                log?.Debug($"In-memory saving as {fullname}");
-                // Only executed if 'write()' does not throw.
-                _streams[fullname] = ms;
-            }
-
-            public void Add(string key, byte[] bytes) =>_streams.Add(key, new MemoryStream(bytes));
-
-            public IEnumerator<KeyValuePair<string, MemoryStream>> GetEnumerator() =>
-                _streams.GetEnumerator();
-
-            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+            log?.Debug($"In-memory reading of {fullname}");
+            yield return new CacheCandidate(
+                "in-memory",
+                new MemoryStream(stream.ToArray()));
         }
+
+        /// <see cref="IProjectionCacheProvider.TryWriteAsync"/>
+        public async Task TryWriteAsync(ILogAdapter? log, string fullname, Func<Stream, Task> write)
+        {
+            var ms = new MemoryStream();
+            await write(ms);
+
+            log?.Debug($"In-memory saving as {fullname}");
+            // Only executed if 'write()' does not throw.
+            _streams[fullname] = ms;
+        }
+
+        public void Add(string key, byte[] bytes) =>_streams.Add(key, new MemoryStream(bytes));
+
+        public IEnumerator<KeyValuePair<string, MemoryStream>> GetEnumerator() =>
+            _streams.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

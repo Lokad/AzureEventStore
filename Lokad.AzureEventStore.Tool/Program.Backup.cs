@@ -6,125 +6,124 @@ using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Streams;
 using Newtonsoft.Json.Linq;
 
-namespace Lokad.AzureEventStore.Tool
+namespace Lokad.AzureEventStore.Tool;
+
+static partial class Program
 {
-    static partial class Program
+    /// <summary> Backs up a stream to another. </summary>
+    private static void CmdBackup(string[] args)
     {
-        /// <summary> Backs up a stream to another. </summary>
-        private static void CmdBackup(string[] args)
+        if (args.Length < 2)
         {
-            if (args.Length < 2)
-            {
-                Console.WriteLine("Usage: backup <source> <dest> <max-seq>?");
-                Console.WriteLine("Copy events from one stream to another.");
-                return;
-            }
-
-            var srcname = args[0];
-            var dstname = args[1];
-
-            var maxseq = uint.MaxValue;
-            if (args.Length >= 3)
-                maxseq = uint.Parse(args[2]);
-
-            BackupCopy(srcname, dstname, maxseq);
+            Console.WriteLine("Usage: backup <source> <dest> <max-seq>?");
+            Console.WriteLine("Copy events from one stream to another.");
+            return;
         }
 
-        /// <summary> Copies from source to destination, returns last position in source. </summary>
-        private static long BackupCopy(string srcname, string dstname, uint maxseq)
-        { 
-            var srcDriver = new StorageConfiguration(Parse(srcname)) {ReadOnly = true}.Connect();
+        var srcname = args[0];
+        var dstname = args[1];
 
-            using (Release(srcDriver))
+        var maxseq = uint.MaxValue;
+        if (args.Length >= 3)
+            maxseq = uint.Parse(args[2]);
+
+        BackupCopy(srcname, dstname, maxseq);
+    }
+
+    /// <summary> Copies from source to destination, returns last position in source. </summary>
+    private static long BackupCopy(string srcname, string dstname, uint maxseq)
+    { 
+        var srcDriver = new StorageConfiguration(Parse(srcname)) {ReadOnly = true}.Connect();
+
+        using (Release(srcDriver))
+        {
+            var dstDriver = new StorageConfiguration(Parse(dstname)).Connect();
+            using (Release(dstDriver))
             {
-                var dstDriver = new StorageConfiguration(Parse(dstname)).Connect();
-                using (Release(dstDriver))
+                var src = new EventStream<JObject>(srcDriver);
+                var dst = new MigrationStream<JObject>(dstDriver);
+
+                var sw = Stopwatch.StartNew();
+                var events = 0;
+                var initial = 0L;
+
+                Status("Connecting...");
+
+                Task.Run((Func<Task>) (async () =>
                 {
-                    var src = new EventStream<JObject>(srcDriver);
-                    var dst = new MigrationStream<JObject>(dstDriver);
+                    Status("Current source size: ...");
+                    var maxPos = await srcDriver.GetPositionAsync();
+                    Console.WriteLine("Current source size: {0:F2} MB", maxPos / (1024.0 * 1024.0));
 
-                    var sw = Stopwatch.StartNew();
-                    var events = 0;
-                    var initial = 0L;
+                    Status("Current source seq: ...");
+                    var maxSeq = await srcDriver.GetLastKeyAsync();
+                    Console.WriteLine("Current source seq: {0}", maxSeq);
 
-                    Status("Connecting...");
+                    Status("Current destination seq: ...");
+                    var bakSeq = await dstDriver.GetLastKeyAsync();
+                    Console.WriteLine("Current destination seq: {0}", bakSeq);
 
-                    Task.Run((Func<Task>) (async () =>
+                    if (bakSeq >= maxSeq)
                     {
-                        Status("Current source size: ...");
-                        var maxPos = await srcDriver.GetPositionAsync();
-                        Console.WriteLine("Current source size: {0:F2} MB", maxPos / (1024.0 * 1024.0));
+                        Console.WriteLine("Destination already up-to-date.");
+                        return;
+                    }
 
-                        Status("Current source seq: ...");
-                        var maxSeq = await srcDriver.GetLastKeyAsync();
-                        Console.WriteLine("Current source seq: {0}", maxSeq);
+                    var asAzure = ((ReadOnlyDriverWrapper) srcDriver).Wrapped as AzureStorageDriver;
 
-                        Status("Current destination seq: ...");
-                        var bakSeq = await dstDriver.GetLastKeyAsync();
-                        Console.WriteLine("Current destination seq: {0}", bakSeq);
-
-                        if (bakSeq >= maxSeq)
+                    if (asAzure != null)
+                    {
+                        for (var i = 0; i < asAzure.Blobs.Count; ++i)
                         {
-                            Console.WriteLine("Destination already up-to-date.");
-                            return;
+                            Console.WriteLine("Blob {0}: {1:F2} MB from seq {2}",
+                                asAzure.Blobs[i].AppendBlob.Name,
+                                asAzure.Blobs[i].Bytes / (1024.0 * 1024.0),
+                                i < asAzure.FirstKey.Count ? asAzure.FirstKey[i] : maxSeq);
                         }
+                    }
 
-                        var asAzure = ((ReadOnlyDriverWrapper) srcDriver).Wrapped as AzureStorageDriver;
+                    if (bakSeq > 0)
+                    {
+                        Status("Skipping to seq {0}...", bakSeq);
+                        await src.DiscardUpTo(bakSeq + 1);
+                        Console.WriteLine("Skipping to seq {0} done !", bakSeq);
+                    }
 
-                        if (asAzure != null)
-                        {
-                            for (var i = 0; i < asAzure.Blobs.Count; ++i)
-                            {
-                                Console.WriteLine("Blob {0}: {1:F2} MB from seq {2}",
-                                    asAzure.Blobs[i].AppendBlob.Name,
-                                    asAzure.Blobs[i].Bytes / (1024.0 * 1024.0),
-                                    i < asAzure.FirstKey.Count ? asAzure.FirstKey[i] : maxSeq);
-                            }
-                        }
+                    initial = src.Position;
 
-                        if (bakSeq > 0)
-                        {
-                            Status("Skipping to seq {0}...", bakSeq);
-                            await src.DiscardUpTo(bakSeq + 1);
-                            Console.WriteLine("Skipping to seq {0} done !", bakSeq);
-                        }
+                    Func<bool> more;
+                    do
+                    {
+                        var fetch = src.BackgroundFetchAsync();
+                        var list = new List<KeyValuePair<uint, JObject>>();
 
-                        initial = src.Position;
+                        JObject obj;
+                        while ((obj = src.TryGetNext()) != null)
+                            list.Add(new KeyValuePair<uint, JObject>(src.Sequence, obj));
 
-                        Func<bool> more;
-                        do
-                        {
-                            var fetch = src.BackgroundFetchAsync();
-                            var list = new List<KeyValuePair<uint, JObject>>();
+                        events += list.Count;
 
-                            JObject obj;
-                            while ((obj = src.TryGetNext()) != null)
-                                list.Add(new KeyValuePair<uint, JObject>(src.Sequence, obj));
+                        while (list.Count > 0 && list[list.Count - 1].Key > maxseq)
+                            list.RemoveAt(list.Count - 1);
 
-                            events += list.Count;
+                        await dst.WriteAsync(list);
 
-                            while (list.Count > 0 && list[list.Count - 1].Key > maxseq)
-                                list.RemoveAt(list.Count - 1);
+                        Status("{0}/{1} ({2:F2}/{3:F2} MB)",
+                            src.Sequence,
+                            maxSeq,
+                            src.Position / (1024.0 * 1024.0),
+                            maxPos / (1024.0 * 1024.0));
 
-                            await dst.WriteAsync(list);
+                        more = await fetch;
+                    } while (more());
+                })).Wait();
 
-                            Status("{0}/{1} ({2:F2}/{3:F2} MB)",
-                                src.Sequence,
-                                maxSeq,
-                                src.Position / (1024.0 * 1024.0),
-                                maxPos / (1024.0 * 1024.0));
+                Console.WriteLine("{0} events ({1:F2} MB) in {2:F2}s.",
+                    events,
+                    (src.Position - initial) / (1024.0 * 1024.0),
+                    sw.ElapsedMilliseconds / 1000.0);
 
-                            more = await fetch;
-                        } while (more());
-                    })).Wait();
-
-                    Console.WriteLine("{0} events ({1:F2} MB) in {2:F2}s.",
-                        events,
-                        (src.Position - initial) / (1024.0 * 1024.0),
-                        sw.ElapsedMilliseconds / 1000.0);
-
-                    return src.Position;
-                }
+                return src.Position;
             }
         }
     }

@@ -10,158 +10,152 @@ using Lokad.AzureEventStore.Streams;
 using Lokad.AzureEventStore.Wrapper;
 using Xunit;
 
-namespace Lokad.AzureEventStore.Test.wrapper
+namespace Lokad.AzureEventStore.Test.wrapper;
+
+[DataContract]
+public class TstEvent(uint seq)
 {
-    [DataContract]
-    public class TstEvent
-    {
-        public TstEvent(uint seq)
-        {
-            Seq = seq;
-        }
+    [DataMember(Name  = "Account", IsRequired = true, EmitDefaultValue = true)]
+    public uint Seq { get; set; } = seq;
+}
 
-        [DataMember(Name  = "Account", IsRequired = true, EmitDefaultValue = true)]
-        public uint Seq { get; set; }
+public class CheckSequence
+{
+    private CheckSequence()
+    {
+        this.LastEvt = 0;
+        this.ExpectedNextEvt = 1;
     }
 
-    public class CheckSequence
+    private CheckSequence(uint evtSeqNum, uint expectedEvtNextSeq)
     {
-        private CheckSequence()
-        {
-            this.LastEvt = 0;
-            this.ExpectedNextEvt = 1;
-        }
-
-        private CheckSequence(uint evtSeqNum, uint expectedEvtNextSeq)
-        {
-            this.LastEvt = evtSeqNum;
-            this.ExpectedNextEvt = expectedEvtNextSeq;
-        }
-
-        public CheckSequence WithNewEvent(TstEvent evt)
-        {
-            Assert.Equal(ExpectedNextEvt, evt.Seq);
-            return new CheckSequence(evt.Seq, evt.Seq+1);
-        }
-
-        public void Serialize(Stream s)
-        {
-            using (var w = new BinaryWriter(s, encoding: Encoding.Default, leaveOpen:true))
-            {
-                w.Write(LastEvt);
-                w.Write(ExpectedNextEvt);
-            }
-        }
-
-        public static CheckSequence Deserialize(Stream s)
-        {
-            using (var r = new BinaryReader(s, encoding: Encoding.Default, leaveOpen: true))
-            {
-                uint lastEvt = r.ReadUInt32();
-                uint expectedNext = r.ReadUInt32();
-                return new CheckSequence(lastEvt, expectedNext);
-            }
-        }
-
-        public class Projection : IProjection<TstEvent, CheckSequence>
-        {
-            public string FullName => "CheckSeqProj-01";
-            public Type State => typeof(CheckSequence);
-            public bool NeedsMemoryMappedFolder => false;
-
-            public CheckSequence Initial(StateCreationContext stateCreationContext) => new CheckSequence();
-
-            public CheckSequence Apply(uint sequence, TstEvent e, CheckSequence previous)
-            {
-                Assert.Equal(sequence, e.Seq);
-                return previous.WithNewEvent(e);
-            }
-
-            public Task<CheckSequence> TryLoadAsync(Stream source, CancellationToken cancel)
-            {
-                return Task.FromResult(CheckSequence.Deserialize(source));
-            }
-
-            public Task<bool> TrySaveAsync(Stream destination, CheckSequence state, CancellationToken cancel)
-            {
-                state.Serialize(destination);
-                return Task.FromResult(true);
-            }
-
-            public Task<RestoredState<CheckSequence>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
-            {
-                return Task.FromResult<RestoredState<CheckSequence>>(null);
-            }
-
-            public Task CommitAsync(CheckSequence state, uint sequence, CancellationToken cancel = default)
-            {
-                return Task.CompletedTask;
-            }
-
-            public Task<CheckSequence> UpkeepAsync(StateUpkeepContext stateUpkeepContext, CheckSequence state, CancellationToken cancel = default)
-            {
-                return Task.FromResult(state);
-            }
-        }
-
-        public uint LastEvt { get; }
-        public uint ExpectedNextEvt { get; }
+        this.LastEvt = evtSeqNum;
+        this.ExpectedNextEvt = expectedEvtNextSeq;
     }
 
-
-    public class sequentiality
+    public CheckSequence WithNewEvent(TstEvent evt)
     {
-        [Fact]
-        public async Task without_restart()
+        Assert.Equal(ExpectedNextEvt, evt.Seq);
+        return new CheckSequence(evt.Seq, evt.Seq+1);
+    }
+
+    public void Serialize(Stream s)
+    {
+        using (var w = new BinaryWriter(s, encoding: Encoding.Default, leaveOpen:true))
         {
-            var memory = new MemoryStorageDriver();
-            var ew = new EventStreamWrapper<TstEvent, CheckSequence>(
-                memory,
-                new []{new CheckSequence.Projection()},  
-                null,
-                null);
-            await ew.InitializeAsync();
-            await ew.AppendEventsAsync(new[] { new TstEvent(1) });
-            await ew.AppendEventsAsync(new[] { new TstEvent(2) });
-            await ew.AppendEventsAsync(new[] { new TstEvent(3) });
+            w.Write(LastEvt);
+            w.Write(ExpectedNextEvt);
+        }
+    }
 
-            Assert.Equal(3u, ew.Current.LastEvt);
+    public static CheckSequence Deserialize(Stream s)
+    {
+        using (var r = new BinaryReader(s, encoding: Encoding.Default, leaveOpen: true))
+        {
+            uint lastEvt = r.ReadUInt32();
+            uint expectedNext = r.ReadUInt32();
+            return new CheckSequence(lastEvt, expectedNext);
+        }
+    }
 
-            // try to read: 
-            var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
-                memory, new[] {new CheckSequence.Projection()}, null, null);
+    public class Projection : IProjection<TstEvent, CheckSequence>
+    {
+        public string FullName => "CheckSeqProj-01";
+        public Type State => typeof(CheckSequence);
+        public bool NeedsMemoryMappedFolder => false;
+
+        public CheckSequence Initial(StateCreationContext stateCreationContext) => new();
+
+        public CheckSequence Apply(uint sequence, TstEvent e, CheckSequence previous)
+        {
+            Assert.Equal(sequence, e.Seq);
+            return previous.WithNewEvent(e);
+        }
+
+        public Task<CheckSequence> TryLoadAsync(Stream source, CancellationToken cancel)
+        {
+            return Task.FromResult(CheckSequence.Deserialize(source));
+        }
+
+        public Task<bool> TrySaveAsync(Stream destination, CheckSequence state, CancellationToken cancel)
+        {
+            state.Serialize(destination);
+            return Task.FromResult(true);
+        }
+
+        public Task<RestoredState<CheckSequence>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
+        {
+            return Task.FromResult<RestoredState<CheckSequence>>(null);
+        }
+
+        public Task CommitAsync(CheckSequence state, uint sequence, CancellationToken cancel = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<CheckSequence> UpkeepAsync(StateUpkeepContext stateUpkeepContext, CheckSequence state, CancellationToken cancel = default)
+        {
+            return Task.FromResult(state);
+        }
+    }
+
+    public uint LastEvt { get; }
+    public uint ExpectedNextEvt { get; }
+}
+
+
+public class sequentiality
+{
+    [Fact]
+    public async Task without_restart()
+    {
+        var memory = new MemoryStorageDriver();
+        var ew = new EventStreamWrapper<TstEvent, CheckSequence>(
+            memory,
+            [new CheckSequence.Projection()],  
+            null,
+            null);
+        await ew.InitializeAsync();
+        await ew.AppendEventsAsync([new TstEvent(1)]);
+        await ew.AppendEventsAsync([new TstEvent(2)]);
+        await ew.AppendEventsAsync([new TstEvent(3)]);
+
+        Assert.Equal(3u, ew.Current.LastEvt);
+
+        // try to read: 
+        var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
+            memory, [new CheckSequence.Projection()], null, null);
             
-            await ew2.InitializeAsync();
-            Assert.Equal(3u, ew2.Current.LastEvt);
-        }
+        await ew2.InitializeAsync();
+        Assert.Equal(3u, ew2.Current.LastEvt);
+    }
         
-        [Fact]
-        public async Task with_restart()
-        {
-            var memory = new MemoryStorageDriver();
-            var cache = new Testing.InMemoryCache();
-            var ew = new EventStreamWrapper<TstEvent, CheckSequence>(
-                memory,
-                new []{new CheckSequence.Projection()},
-                (EventStream<TstEvent> _) => cache,
-                null);
-            await ew.InitializeAsync();
-            await ew.AppendEventsAsync(new[] { new TstEvent(1) });
-            await ew.AppendEventsAsync(new[] { new TstEvent(2) });
-            await ew.AppendEventsAsync(new[] { new TstEvent(3) });
-            await ew.TrySaveAsync();
-            await ew.AppendEventsAsync(new[] { new TstEvent(4) });
-            await ew.AppendEventsAsync(new[] { new TstEvent(5) });
+    [Fact]
+    public async Task with_restart()
+    {
+        var memory = new MemoryStorageDriver();
+        var cache = new Testing.InMemoryCache();
+        var ew = new EventStreamWrapper<TstEvent, CheckSequence>(
+            memory,
+            [new CheckSequence.Projection()],
+            (EventStream<TstEvent> _) => cache,
+            null);
+        await ew.InitializeAsync();
+        await ew.AppendEventsAsync([new TstEvent(1)]);
+        await ew.AppendEventsAsync([new TstEvent(2)]);
+        await ew.AppendEventsAsync([new TstEvent(3)]);
+        await ew.TrySaveAsync();
+        await ew.AppendEventsAsync([new TstEvent(4)]);
+        await ew.AppendEventsAsync([new TstEvent(5)]);
 
-            Assert.Equal(5u, ew.Current.LastEvt);
+        Assert.Equal(5u, ew.Current.LastEvt);
 
-            // try to read: 
-            var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
-                memory, new[] {new CheckSequence.Projection()},
-                (EventStream<TstEvent> _) => cache, null);
+        // try to read: 
+        var ew2 = new EventStreamWrapper<TstEvent, CheckSequence>(
+            memory, [new CheckSequence.Projection()],
+            (EventStream<TstEvent> _) => cache, null);
 
-            await ew2.InitializeAsync();
-            Assert.Equal(5u, ew2.Current.LastEvt);
-        }
+        await ew2.InitializeAsync();
+        Assert.Equal(5u, ew2.Current.LastEvt);
     }
 }

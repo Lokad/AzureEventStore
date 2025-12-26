@@ -3,28 +3,27 @@ using System.IO;
 using Lokad.AzureEventStore.Drivers;
 using Xunit;
 
-namespace Lokad.AzureEventStore.Test.drivers
+namespace Lokad.AzureEventStore.Test.drivers;
+
+public sealed class file_storage_driver : storage_driver
 {
-    public sealed class file_storage_driver : storage_driver
+    private string _path;
+
+    internal override IStorageDriver GetFreshStorageDriver()
     {
-        private string _path;
+        _path = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
+        return new FileStorageDriver(_path);
+    }
 
-        internal override IStorageDriver GetFreshStorageDriver()
+    protected override void DeleteStorageDriver()
+    {
+        try
         {
-            _path = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
-            return new FileStorageDriver(_path);
+            Directory.Delete(_path, true);
         }
-
-        protected override void DeleteStorageDriver()
+        catch
         {
-            try
-            {
-                Directory.Delete(_path, true);
-            }
-            catch
-            {
-                Console.WriteLine($"Failed to delete {_path}");
-            }
+            Console.WriteLine($"Failed to delete {_path}");
         }
     }
 }

@@ -6,287 +6,287 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore.Projections
+namespace Lokad.AzureEventStore.Projections;
+
+/// <summary>
+/// Uses one or more <see cref="ReifiedProjection{T,T}"/> instances
+/// to keep a complex state up-to-date with events.
+/// </summary>
+/// <typeparam name="TEvent"> Events processed to update the state. </typeparam>
+/// <typeparam name="TState"> The type of the state. Immutable. </typeparam>
+internal sealed class ReifiedProjectionGroup<TEvent, TState> : IReifiedProjection<TEvent, TState> where TState : class
 {
     /// <summary>
-    /// Uses one or more <see cref="ReifiedProjection{T,T}"/> instances
-    /// to keep a complex state up-to-date with events.
+    /// All the reified projections involving in building the state for
+    /// this group.
     /// </summary>
-    /// <typeparam name="TEvent"> Events processed to update the state. </typeparam>
-    /// <typeparam name="TState"> The type of the state. Immutable. </typeparam>
-    internal sealed class ReifiedProjectionGroup<TEvent, TState> : IReifiedProjection<TEvent, TState> where TState : class
+    private readonly IReifiedProjection<TEvent>[] _reifiedProjections;
+
+    /// <summary> Cached state, computed lazily. </summary>        
+    private Lazy<TState> _current;
+
+    private ReifiedProjectionGroup(
+        IReifiedProjection<TEvent>[] reifiedProjections,
+        Func<IReifiedProjection<TEvent>[], TState> refresh,
+        uint sequence)
     {
-        /// <summary>
-        /// All the reified projections involving in building the state for
-        /// this group.
-        /// </summary>
-        private readonly IReifiedProjection<TEvent>[] _reifiedProjections;
-
-        /// <summary> Cached state, computed lazily. </summary>        
-        private Lazy<TState> _current;
-
-        private ReifiedProjectionGroup(
-            IReifiedProjection<TEvent>[] reifiedProjections,
-            Func<IReifiedProjection<TEvent>[], TState> refresh,
-            uint sequence)
+        _reifiedProjections = reifiedProjections;
+        _refresh = refresh;
+        _refreshClosure = () =>
         {
-            _reifiedProjections = reifiedProjections;
-            _refresh = refresh;
-            _refreshClosure = () =>
+            var value = refresh(reifiedProjections);
+            return value;
+        };
+
+        Sequence = sequence;
+
+        InvalidateCurrent();
+    }
+
+    /// <inheritdoc/>
+    public IReifiedProjection<TEvent, TState> Clone() =>
+        new ReifiedProjectionGroup<TEvent, TState>(
+            _reifiedProjections.Select(p => p.Clone()).ToArray(),
+            _refresh,
+            Sequence);
+
+    /// <inheritdoc/>
+    IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
+
+    /// <summary>
+    /// Reifies a group of projections as a <typeparamref name="TState"/> object.
+    /// </summary>
+    public ReifiedProjectionGroup(
+        IEnumerable<IProjection<TEvent>> projections,
+        IProjectionCacheProvider cacheProvider = null, 
+        IProjectionFolderProvider folderProvider = null, 
+        ILogAdapter log = null)
+    {
+        // Dirty reflection work to reify the individual projections and store their
+        // type parameter.
+        var reifiedByType = new Dictionary<Type, IReifiedProjection<TEvent>>();
+        foreach (var p in projections)
+        {
+            if (reifiedByType.ContainsKey(p.State))
             {
-                var value = refresh(reifiedProjections);
-                return value;
-            };
+                log?.Error($"Found multiple projections for type {p.State}.");
+                throw new ArgumentException($"Multiple projections for type '{p.State}'", nameof(projections));
+            }
 
-            Sequence = sequence;
+            var reifiedProjectionType = typeof (ReifiedProjection<,>)
+                .MakeGenericType(typeof (TEvent), p.State);
 
-            InvalidateCurrent();
+            var projectionType = typeof (IProjection<,>)
+                .MakeGenericType(typeof (TEvent), p.State);
+
+            var constructor = reifiedProjectionType
+                .GetTypeInfo()
+                .GetConstructor([projectionType, typeof(IProjectionCacheProvider), typeof(IProjectionFolderProvider), typeof(ILogAdapter)
+                ]);
+
+            if (constructor == null)
+                throw new Exception("No constructor found for '" + reifiedProjectionType + "'");
+
+            IReifiedProjection<TEvent> reified;
+
+            try
+            {
+                reified = (IReifiedProjection<TEvent>) constructor.Invoke([p, cacheProvider, folderProvider, log]);
+            }
+            catch (TargetInvocationException e)
+            {
+                log?.Error($"When creating reified projection for type {p.State}.", e.InnerException);
+                throw e.InnerException;
+            }
+
+            reifiedByType.Add(p.State, reified);
         }
 
-        /// <inheritdoc/>
-        public IReifiedProjection<TEvent, TState> Clone() =>
-            new ReifiedProjectionGroup<TEvent, TState>(
-                _reifiedProjections.Select(p => p.Clone()).ToArray(),
-                _refresh,
-                Sequence);
-
-        /// <inheritdoc/>
-        IReifiedProjection<TEvent> IReifiedProjection<TEvent>.Clone() => Clone();
-
-        /// <summary>
-        /// Reifies a group of projections as a <typeparamref name="TState"/> object.
-        /// </summary>
-        public ReifiedProjectionGroup(
-            IEnumerable<IProjection<TEvent>> projections,
-            IProjectionCacheProvider cacheProvider = null, 
-            IProjectionFolderProvider folderProvider = null, 
-            ILogAdapter log = null)
+        // Easy case: a projection outputs the state type directly
+        IReifiedProjection<TEvent> direct;
+        if (reifiedByType.TryGetValue(typeof (TState), out direct))
         {
-            // Dirty reflection work to reify the individual projections and store their
-            // type parameter.
-            var reifiedByType = new Dictionary<Type, IReifiedProjection<TEvent>>();
-            foreach (var p in projections)
+            _reifiedProjections = [direct];
+            var directCast = (ReifiedProjection<TEvent, TState>) direct;
+
+            _refresh = d => ((ReifiedProjection<TEvent, TState>)d[0]).Current;
+            _refreshClosure = () => directCast.Current;
+                
+            InvalidateCurrent();
+            return;
+        }
+
+        // Hard case: state is made from the results of multiple independent 
+        // projections. Need to write code to combine them.
+        var posByType = new Dictionary<Type, int>();
+        var reifiedByPos = new List<IReifiedProjection<TEvent>>();
+
+        var stateConstructor = typeof (TState)
+            .GetTypeInfo()
+            .GetConstructors()
+            .FirstOrDefault(c =>
             {
-                if (reifiedByType.ContainsKey(p.State))
-                {
-                    log?.Error($"Found multiple projections for type {p.State}.");
-                    throw new ArgumentException($"Multiple projections for type '{p.State}'", nameof(projections));
-                }
+                var p = c.GetParameters();
+                if (p.Length == 0) return false;
+                return p.All(info => reifiedByType.ContainsKey(info.ParameterType));
+            });
 
-                var reifiedProjectionType = typeof (ReifiedProjection<,>)
-                    .MakeGenericType(typeof (TEvent), p.State);
+        if (stateConstructor == null)
+            throw new ArgumentException($"No compatible constructor found in '{typeof(TState)}'", nameof(projections));
 
-                var projectionType = typeof (IProjection<,>)
-                    .MakeGenericType(typeof (TEvent), p.State);
+        // Build an expression that will extract the state components from "array" and
+        // pass them to the constructor.
+        var parameters = stateConstructor.GetParameters();
+        var array = Expression.Parameter(typeof (IReifiedProjection<TEvent>[]));
+        var arguments = new List<Expression>();
+        foreach (var p in parameters)
+        {
+            int pos;
+            if (!posByType.TryGetValue(p.ParameterType, out pos))
+            {
+                pos = posByType.Count;
+                posByType.Add(p.ParameterType, pos);
+                reifiedByPos.Add(reifiedByType[p.ParameterType]);
+            }
 
-                var constructor = reifiedProjectionType
-                    .GetTypeInfo()
-                    .GetConstructor(new []{ projectionType, typeof(IProjectionCacheProvider), typeof(IProjectionFolderProvider), typeof(ILogAdapter) });
+            var argReified = Expression.Convert(
+                Expression.ArrayIndex(array, Expression.Constant(pos)),
+                typeof (ReifiedProjection<,>).MakeGenericType(typeof (TEvent), p.ParameterType));
+                
+            arguments.Add(Expression.Property(argReified, "Current"));
+        }
 
-                if (constructor == null)
-                    throw new Exception("No constructor found for '" + reifiedProjectionType + "'");
+        var lambda = Expression.Lambda<Func<IReifiedProjection<TEvent>[], TState>>(
+            Expression.New(stateConstructor, arguments), array);
 
-                IReifiedProjection<TEvent> reified;
+        var refresh = _refresh = lambda.Compile();
+        var reifiedProjections = _reifiedProjections = reifiedByPos.ToArray();
 
+        _refreshClosure = () => refresh(reifiedProjections);
+
+        InvalidateCurrent();
+    } 
+
+    /// <summary> The current state of the projections. </summary>
+    public TState Current => _current.Value;
+
+    public async Task<bool> TrySaveAsync(CancellationToken cancel = default)
+    {
+        var all = await Task.WhenAll(
+            _reifiedProjections.Select(p => p.TrySaveAsync(cancel)));
+
+        return all.All(b => b);
+    }
+
+    public async Task<bool> TryLoadAsync(CancellationToken cancel = default)
+    {
+        var all = await Task.WhenAll(_reifiedProjections.Select(p => p.TryLoadAsync(cancel)));
+        Sequence = _reifiedProjections.Min(p => p.Sequence);
+        return all.All(b => b);
+    }
+
+    public void SetPossiblyInconsistent()
+    {
+        foreach (var p in _reifiedProjections) p.SetPossiblyInconsistent();
+    }
+
+    public void Apply(uint seq, TEvent e)
+    {
+        if (seq <= Sequence)
+            throw new ArgumentException("Sequence number too early.");
+
+        Sequence = seq;
+
+        List<Exception> exceptions = null;
+        foreach (var p in _reifiedProjections)
+        {
+            if (seq > p.Sequence)
+            {
                 try
                 {
-                    reified = (IReifiedProjection<TEvent>) constructor.Invoke(new object[] {p, cacheProvider, folderProvider, log});
+                    p.Apply(seq, e);
                 }
-                catch (TargetInvocationException e)
+                catch (Exception ex)
                 {
-                    log?.Error($"When creating reified projection for type {p.State}.", e.InnerException);
-                    throw e.InnerException;
-                }
-
-                reifiedByType.Add(p.State, reified);
-            }
-
-            // Easy case: a projection outputs the state type directly
-            IReifiedProjection<TEvent> direct;
-            if (reifiedByType.TryGetValue(typeof (TState), out direct))
-            {
-                _reifiedProjections = new[] {direct};
-                var directCast = (ReifiedProjection<TEvent, TState>) direct;
-
-                _refresh = d => ((ReifiedProjection<TEvent, TState>)d[0]).Current;
-                _refreshClosure = () => directCast.Current;
-                
-                InvalidateCurrent();
-                return;
-            }
-
-            // Hard case: state is made from the results of multiple independent 
-            // projections. Need to write code to combine them.
-            var posByType = new Dictionary<Type, int>();
-            var reifiedByPos = new List<IReifiedProjection<TEvent>>();
-
-            var stateConstructor = typeof (TState)
-                .GetTypeInfo()
-                .GetConstructors()
-                .FirstOrDefault(c =>
-                {
-                    var p = c.GetParameters();
-                    if (p.Length == 0) return false;
-                    return p.All(info => reifiedByType.ContainsKey(info.ParameterType));
-                });
-
-            if (stateConstructor == null)
-                throw new ArgumentException($"No compatible constructor found in '{typeof(TState)}'", nameof(projections));
-
-            // Build an expression that will extract the state components from "array" and
-            // pass them to the constructor.
-            var parameters = stateConstructor.GetParameters();
-            var array = Expression.Parameter(typeof (IReifiedProjection<TEvent>[]));
-            var arguments = new List<Expression>();
-            foreach (var p in parameters)
-            {
-                int pos;
-                if (!posByType.TryGetValue(p.ParameterType, out pos))
-                {
-                    pos = posByType.Count;
-                    posByType.Add(p.ParameterType, pos);
-                    reifiedByPos.Add(reifiedByType[p.ParameterType]);
-                }
-
-                var argReified = Expression.Convert(
-                    Expression.ArrayIndex(array, Expression.Constant(pos)),
-                    typeof (ReifiedProjection<,>).MakeGenericType(typeof (TEvent), p.ParameterType));
-                
-                arguments.Add(Expression.Property(argReified, "Current"));
-            }
-
-            var lambda = Expression.Lambda<Func<IReifiedProjection<TEvent>[], TState>>(
-                Expression.New(stateConstructor, arguments), array);
-
-            var refresh = _refresh = lambda.Compile();
-            var reifiedProjections = _reifiedProjections = reifiedByPos.ToArray();
-
-            _refreshClosure = () => refresh(reifiedProjections);
-
-            InvalidateCurrent();
-        } 
-
-        /// <summary> The current state of the projections. </summary>
-        public TState Current => _current.Value;
-
-        public async Task<bool> TrySaveAsync(CancellationToken cancel = default(CancellationToken))
-        {
-            var all = await Task.WhenAll(
-                _reifiedProjections.Select(p => p.TrySaveAsync(cancel)));
-
-            return all.All(b => b);
-        }
-
-        public async Task<bool> TryLoadAsync(CancellationToken cancel = default(CancellationToken))
-        {
-            var all = await Task.WhenAll(_reifiedProjections.Select(p => p.TryLoadAsync(cancel)));
-            Sequence = _reifiedProjections.Min(p => p.Sequence);
-            return all.All(b => b);
-        }
-
-        public void SetPossiblyInconsistent()
-        {
-            foreach (var p in _reifiedProjections) p.SetPossiblyInconsistent();
-        }
-
-        public void Apply(uint seq, TEvent e)
-        {
-            if (seq <= Sequence)
-                throw new ArgumentException("Sequence number too early.");
-
-            Sequence = seq;
-
-            List<Exception> exceptions = null;
-            foreach (var p in _reifiedProjections)
-            {
-                if (seq > p.Sequence)
-                {
-                    try
-                    {
-                        p.Apply(seq, e);
-                    }
-                    catch (Exception ex)
-                    {
-                        SetPossiblyInconsistent();
+                    SetPossiblyInconsistent();
                         
-                        if (_reifiedProjections.Length == 1)
-                            throw;
+                    if (_reifiedProjections.Length == 1)
+                        throw;
 
-                        if (exceptions == null) exceptions = new List<Exception>();
-                        exceptions.Add(ex);
-                    }
+                    if (exceptions == null) exceptions = [];
+                    exceptions.Add(ex);
                 }
             }
-
-            if (exceptions != null) throw new AggregateException(exceptions);
-
-            InvalidateCurrent();
         }
 
-        /// <summary> Passing events through every projection without invalidation or changes in projection. </summary>
-        public void TryApply(uint seq, IReadOnlyList<TEvent> events)
-        {
-            foreach (var p in _reifiedProjections)
-            {
-                p.TryApply(seq, events);
-            }
-        }
+        if (exceptions != null) throw new AggregateException(exceptions);
 
-        public void Reset()
-        {
-            foreach (var p in _reifiedProjections) p.Reset();
-            Sequence = 0;
-            InvalidateCurrent();
-        }
-
-        /// <summary> Marks <see cref="Current"/> as outdated and requiring re-evaluation. </summary>
-        private void InvalidateCurrent()
-        {
-            _current = new Lazy<TState>(_refreshClosure, LazyThreadSafetyMode.PublicationOnly);
-        }
-
-        /// <summary>
-        /// Commit additional changes after applying events to the state.
-        /// </summary>
-        public async Task CommitAsync(uint sequence, CancellationToken cancel = default)
-        {
-            await Task.WhenAll(_reifiedProjections.Select(p => p.CommitAsync(sequence, cancel)));
-        }
-
-        public async Task CreateAsync(CancellationToken cancel = default)
-        {
-            await Task.WhenAll(_reifiedProjections.Select(p => p.CreateAsync(cancel)));
-            Sequence = _reifiedProjections.Min(p => p.Sequence);
-        }
-
-        public async Task UpkeepAsync(CancellationToken cancel = default)
-        {
-            await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepAsync(cancel)));
-        }
-
-        public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
-        {
-            await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepOrSaveLoadAsync(seq, cancel)));
-        }
-
-        public async Task<bool> PreserveAsync(CancellationToken cancel = default)
-        {
-            var all = await Task.WhenAll(_reifiedProjections.Select(p => p.PreserveAsync(cancel)));
-            return all.All(b => b);
-        }
-
-        /// <summary> Construct the state from the sub-projections. </summary>
-        private readonly Func<IReifiedProjection<TEvent>[], TState> _refresh;
-
-        /// <summary>
-        ///     Closure that calls <see cref="_refresh"/> on <see cref="_reifiedProjections"/>,
-        ///     to avoid re-allocating it every so often.
-        /// </summary>
-        private readonly Func<TState> _refreshClosure;
-
-        public uint Sequence { get; private set; }
-
-        /// <see cref="IReifiedProjection{T}.Name"/>
-        public string Name { get { return "{" + string.Join(",", _reifiedProjections.Select(p => p.Name)) + "}"; } }
+        InvalidateCurrent();
     }
+
+    /// <summary> Passing events through every projection without invalidation or changes in projection. </summary>
+    public void TryApply(uint seq, IReadOnlyList<TEvent> events)
+    {
+        foreach (var p in _reifiedProjections)
+        {
+            p.TryApply(seq, events);
+        }
+    }
+
+    public void Reset()
+    {
+        foreach (var p in _reifiedProjections) p.Reset();
+        Sequence = 0;
+        InvalidateCurrent();
+    }
+
+    /// <summary> Marks <see cref="Current"/> as outdated and requiring re-evaluation. </summary>
+    private void InvalidateCurrent()
+    {
+        _current = new Lazy<TState>(_refreshClosure, LazyThreadSafetyMode.PublicationOnly);
+    }
+
+    /// <summary>
+    /// Commit additional changes after applying events to the state.
+    /// </summary>
+    public async Task CommitAsync(uint sequence, CancellationToken cancel = default)
+    {
+        await Task.WhenAll(_reifiedProjections.Select(p => p.CommitAsync(sequence, cancel)));
+    }
+
+    public async Task CreateAsync(CancellationToken cancel = default)
+    {
+        await Task.WhenAll(_reifiedProjections.Select(p => p.CreateAsync(cancel)));
+        Sequence = _reifiedProjections.Min(p => p.Sequence);
+    }
+
+    public async Task UpkeepAsync(CancellationToken cancel = default)
+    {
+        await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepAsync(cancel)));
+    }
+
+    public async Task UpkeepOrSaveLoadAsync(uint seq, CancellationToken cancel = default)
+    {
+        await Task.WhenAll(_reifiedProjections.Select(p => p.UpkeepOrSaveLoadAsync(seq, cancel)));
+    }
+
+    public async Task<bool> PreserveAsync(CancellationToken cancel = default)
+    {
+        var all = await Task.WhenAll(_reifiedProjections.Select(p => p.PreserveAsync(cancel)));
+        return all.All(b => b);
+    }
+
+    /// <summary> Construct the state from the sub-projections. </summary>
+    private readonly Func<IReifiedProjection<TEvent>[], TState> _refresh;
+
+    /// <summary>
+    ///     Closure that calls <see cref="_refresh"/> on <see cref="_reifiedProjections"/>,
+    ///     to avoid re-allocating it every so often.
+    /// </summary>
+    private readonly Func<TState> _refreshClosure;
+
+    public uint Sequence { get; private set; }
+
+    /// <see cref="IReifiedProjection{T}.Name"/>
+    public string Name { get { return "{" + string.Join(",", _reifiedProjections.Select(p => p.Name)) + "}"; } }
 }

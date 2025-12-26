@@ -17,18 +17,13 @@ namespace Lokad.AzureEventStore.Drivers;
 ///     After 50000 writes, the blob becomes full and will not support any more
 ///     writes. At that point, additional writes throw <see cref="MonoBlobFullException"/>
 /// </remarks>
-internal sealed class MonoBlobStorageDriver : IStorageDriver
+internal sealed class MonoBlobStorageDriver(AppendBlobClient blob) : IStorageDriver
 {
     /// <summary> The append blob itself. </summary>
-    private readonly AppendBlobClient _blob;
+    private readonly AppendBlobClient _blob = blob;
 
     /// <summary> The last known position of the blob (i.e. the blob length) </summary>
     private long _lastKnownPosition;
-
-    public MonoBlobStorageDriver(AppendBlobClient blob)
-    {
-        _blob = blob;
-    }
 
     /// <summary> Reads the blob size into <see cref="_lastKnownPosition"/> and returns it. </summary>
     private async Task<long> RefreshLastKnownPosition(CancellationToken cancel)
@@ -100,7 +95,7 @@ internal sealed class MonoBlobStorageDriver : IStorageDriver
             act?.SetTag(Logging.EventCount, 0)
                 .SetTag(Logging.EventSize, 0);
 
-            return new DriverReadResult(position, Array.Empty<RawEvent>());
+            return new DriverReadResult(position, []);
         }
 
         var parsedBytes = 0;
@@ -108,7 +103,7 @@ internal sealed class MonoBlobStorageDriver : IStorageDriver
         {
             var events = new List<RawEvent>();
 
-            while (EventFormat.TryParse(memory[parsedBytes..], out var parsed) is RawEvent re)
+            while (EventFormat.TryParse(memory[parsedBytes..], out var parsed) is { } re)
             {
                 events.Add(re);
                 parsedBytes += parsed;

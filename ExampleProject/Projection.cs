@@ -10,156 +10,155 @@ using MessagePack;
 using System.Text.RegularExpressions;
 using Lokad.AzureEventStore;
 
-namespace ExampleProject
+namespace ExampleProject;
+
+public sealed class Projection : IProjection<IEvent, State>
 {
-    public sealed class Projection : IProjection<IEvent, State>
+    public State Initial(StateCreationContext stateCreationContext) => new(
+        ImmutableDictionary<string, int>.Empty,
+        ImmutableList<ImmutableList<int>>.Empty,
+        ImmutableList<State.Document>.Empty);
+
+    /// <summary> Update the state by applying an event. </summary>
+    public State Apply(uint sequence, IEvent e, State previous)
     {
-        public State Initial(StateCreationContext stateCreationContext) => new State(
-            ImmutableDictionary<string, int>.Empty,
-            ImmutableList<ImmutableList<int>>.Empty,
-            ImmutableList<State.Document>.Empty);
+        // In a real-life project, this would likely have been implemented using
+        // a visitor pattern (so that, when adding event types, the compiler can
+        // help us detect all cases where these new events need to be handled).
 
-        /// <summary> Update the state by applying an event. </summary>
-        public State Apply(uint sequence, IEvent e, State previous)
+        if (e is DocumentAdded d)
         {
-            // In a real-life project, this would likely have been implemented using
-            // a visitor pattern (so that, when adding event types, the compiler can
-            // help us detect all cases where these new events need to be handled).
+            if (d.Id != previous.Documents.Count)
+                throw new InvalidDataException();
 
-            if (e is DocumentAdded d)
+            // Add the new document to the table of documents
+            var state = new State(
+                previous.Index, 
+                previous.DocumentLists, 
+                previous.Documents.Add(
+                    new State.Document(d.Id, d.Path, d.Contents)));
+
+            // Index all words in the document
+            foreach (var word in WordsOf(d.Contents))
             {
-                if (d.Id != previous.Documents.Count)
-                    throw new InvalidDataException();
-
-                // Add the new document to the table of documents
-                var state = new State(
-                    previous.Index, 
-                    previous.DocumentLists, 
-                    previous.Documents.Add(
-                        new State.Document(d.Id, d.Path, d.Contents)));
-
-                // Index all words in the document
-                foreach (var word in WordsOf(d.Contents))
+                if (state.Index.TryGetValue(word, out var list))
                 {
-                    if (state.Index.TryGetValue(word, out var list))
-                    {
-                        // Word exists in the index: update the documents list.
-                        state = new State(
-                            state.Index,
-                            state.DocumentLists.SetItem(
-                                list, 
-                                state.DocumentLists[list].Add(d.Id)),
-                            state.Documents);
-                    }
-                    else
-                    {
-                        // Word does not exist in the index: add to index, and 
-                        // create new documents list.
-                        state = new State(
-                            state.Index.Add(word, state.DocumentLists.Count),
-                            state.DocumentLists.Add(
-                                ImmutableList<int>.Empty.Add(d.Id)),
-                            state.Documents);
-                    }
-                }
-
-                return state;
-            }
-
-            if (e is DocumentRemoved r)
-            {
-                if (previous.Documents.Count <= r.Id || r.Id < 0)
-                    throw new InvalidDataException();
-
-                if (previous.Documents[r.Id] == null)
-                    throw new InvalidDataException();
-
-                var doc = previous.Documents[r.Id];
-
-                // Remove the document
-                var state = new State(
-                    previous.Index,
-                    previous.DocumentLists,
-                    previous.Documents.SetItem(r.Id, null));
-
-                // Remove the document id from the document lists of all 
-                // indexed words (leaving empty document lists is acceptable).
-                foreach (var word in WordsOf(doc.Contents))
-                {
-                    var list = state.Index[word];
+                    // Word exists in the index: update the documents list.
                     state = new State(
                         state.Index,
                         state.DocumentLists.SetItem(
-                            list,
-                            state.DocumentLists[list].Remove(r.Id)),
+                            list, 
+                            state.DocumentLists[list].Add(d.Id)),
                         state.Documents);
                 }
-
-                return state;
+                else
+                {
+                    // Word does not exist in the index: add to index, and 
+                    // create new documents list.
+                    state = new State(
+                        state.Index.Add(word, state.DocumentLists.Count),
+                        state.DocumentLists.Add(
+                            ImmutableList<int>.Empty.Add(d.Id)),
+                        state.Documents);
+                }
             }
 
-            throw new ArgumentOutOfRangeException(nameof(e), "Unknown event type " + e.GetType());
+            return state;
         }
 
-        /// <summary> Cut a document into distinct words. </summary>
-        private static IEnumerable<string> WordsOf(string words)
+        if (e is DocumentRemoved r)
         {
-            var set = new HashSet<string>();
+            if (previous.Documents.Count <= r.Id || r.Id < 0)
+                throw new InvalidDataException();
 
-            foreach (var w in new Regex("\\W").Split(words))
+            if (previous.Documents[r.Id] == null)
+                throw new InvalidDataException();
+
+            var doc = previous.Documents[r.Id];
+
+            // Remove the document
+            var state = new State(
+                previous.Index,
+                previous.DocumentLists,
+                previous.Documents.SetItem(r.Id, null));
+
+            // Remove the document id from the document lists of all 
+            // indexed words (leaving empty document lists is acceptable).
+            foreach (var word in WordsOf(doc.Contents))
             {
-                if (string.IsNullOrWhiteSpace(w)) continue;
-
-                set.Add(w.ToLowerInvariant());
+                var list = state.Index[word];
+                state = new State(
+                    state.Index,
+                    state.DocumentLists.SetItem(
+                        list,
+                        state.DocumentLists[list].Remove(r.Id)),
+                    state.Documents);
             }
 
-            return set;
+            return state;
         }
 
-        /// <summary> Load the state from a stream. </summary>
-        public async Task<State> TryLoadAsync(Stream source, CancellationToken cancel)
-        {
-            var index = await MessagePackSerializer.DeserializeAsync<ImmutableDictionary<string, int>>(
-                source, State.MessagePackOptions);
-            var documentLists = await MessagePackSerializer.DeserializeAsync<ImmutableList<ImmutableList<int>>>(
-                source, State.MessagePackOptions);
-            var documents = await MessagePackSerializer.DeserializeAsync<ImmutableList<State.Document>>(
-                source, State.MessagePackOptions);
-
-            return new State(index, documentLists, documents);
-        }
-
-        /// <summary> Save the state to a stream. </summary>
-        public async Task<bool> TrySaveAsync(Stream destination, State state, CancellationToken cancel)
-        {
-            await MessagePackSerializer.SerializeAsync(destination, state.Index, State.MessagePackOptions);
-            await MessagePackSerializer.SerializeAsync(destination, state.DocumentLists, State.MessagePackOptions);
-            await MessagePackSerializer.SerializeAsync(destination, state.Documents, State.MessagePackOptions);
-
-            return true;
-        }
-
-        public Task<RestoredState<State>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
-        {
-            return Task.FromResult<RestoredState<State>>(null);
-        }
-
-        public Task CommitAsync(State state, uint sequence, CancellationToken cancel = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public Task<State> UpkeepAsync(StateUpkeepContext stateUpkeepContext, State state, CancellationToken cancel = default)
-        {
-            return Task.FromResult(state);
-        }
-
-        /// <see cref="IProjection{TEvent}.FullName"/>
-        public string FullName => "State";
-
-        /// <see cref="IProjection{TEvent}.State"/>
-        Type IProjection<IEvent>.State => typeof(State);
-
-        public bool NeedsMemoryMappedFolder => false;
+        throw new ArgumentOutOfRangeException(nameof(e), "Unknown event type " + e.GetType());
     }
+
+    /// <summary> Cut a document into distinct words. </summary>
+    private static IEnumerable<string> WordsOf(string words)
+    {
+        var set = new HashSet<string>();
+
+        foreach (var w in new Regex("\\W").Split(words))
+        {
+            if (string.IsNullOrWhiteSpace(w)) continue;
+
+            set.Add(w.ToLowerInvariant());
+        }
+
+        return set;
+    }
+
+    /// <summary> Load the state from a stream. </summary>
+    public async Task<State> TryLoadAsync(Stream source, CancellationToken cancel)
+    {
+        var index = await MessagePackSerializer.DeserializeAsync<ImmutableDictionary<string, int>>(
+            source, State.MessagePackOptions);
+        var documentLists = await MessagePackSerializer.DeserializeAsync<ImmutableList<ImmutableList<int>>>(
+            source, State.MessagePackOptions);
+        var documents = await MessagePackSerializer.DeserializeAsync<ImmutableList<State.Document>>(
+            source, State.MessagePackOptions);
+
+        return new State(index, documentLists, documents);
+    }
+
+    /// <summary> Save the state to a stream. </summary>
+    public async Task<bool> TrySaveAsync(Stream destination, State state, CancellationToken cancel)
+    {
+        await MessagePackSerializer.SerializeAsync(destination, state.Index, State.MessagePackOptions);
+        await MessagePackSerializer.SerializeAsync(destination, state.DocumentLists, State.MessagePackOptions);
+        await MessagePackSerializer.SerializeAsync(destination, state.Documents, State.MessagePackOptions);
+
+        return true;
+    }
+
+    public Task<RestoredState<State>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
+    {
+        return Task.FromResult<RestoredState<State>>(null);
+    }
+
+    public Task CommitAsync(State state, uint sequence, CancellationToken cancel = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task<State> UpkeepAsync(StateUpkeepContext stateUpkeepContext, State state, CancellationToken cancel = default)
+    {
+        return Task.FromResult(state);
+    }
+
+    /// <see cref="IProjection{TEvent}.FullName"/>
+    public string FullName => "State";
+
+    /// <see cref="IProjection{TEvent}.State"/>
+    Type IProjection<IEvent>.State => typeof(State);
+
+    public bool NeedsMemoryMappedFolder => false;
 }

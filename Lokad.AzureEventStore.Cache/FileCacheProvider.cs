@@ -9,20 +9,15 @@ using System.Threading.Tasks;
 namespace Lokad.AzureEventStore.Cache;
 
 /// <summary> Saves projection state to files in a directory.  </summary>
-public sealed class FileCacheProvider : IProjectionCacheProvider
+public sealed class FileCacheProvider(string directory, IProjectionCacheProvider? foreignProvider)
+    : IProjectionCacheProvider
 {
     /// <summary> Directory path where we want to store the state. </summary>
-    private readonly string _directory;
+    private readonly string _directory = directory;
         
     /// <summary> Optional cache that can fetch a cache for us. </summary>
-    private readonly IProjectionCacheProvider? _foreignProvider;
+    private readonly IProjectionCacheProvider? _foreignProvider = foreignProvider;
 
-    public FileCacheProvider(string directory, IProjectionCacheProvider? foreignProvider)
-    {
-        _directory = directory;
-        _foreignProvider = foreignProvider;
-    }
-        
     /// <summary> Construct a projection cache saving to the specified directory. </summary>
     public FileCacheProvider(string directory) : this(directory, null) {}
 

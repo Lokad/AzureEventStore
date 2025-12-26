@@ -8,186 +8,139 @@ using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Wrapper;
 using Xunit;
 
-namespace Lokad.AzureEventStore.Test.wrapper
+namespace Lokad.AzureEventStore.Test.wrapper;
+
+// Testing of EventStreamWrapper.CheckEvents
+public class events_validity
 {
-    // Testing of EventStreamWrapper.CheckEvents
-    public class events_validity
+    public sealed class VState(uint sequence)
     {
-        public sealed class VState
+        public uint SeqState { get; private set; } = sequence;
+    }
+    [DataContract]
+    public sealed class VEvent(bool valid = true)
+    {
+        [DataMember(Name = "TEvent", IsRequired = true, EmitDefaultValue = false)]
+        public bool IsValid { get; private set; } = valid;
+    }
+    public class Projection : IProjection<VEvent, VState>
+    {
+        public Type State => typeof(VState);
+        public bool NeedsMemoryMappedFolder => false;
+
+        public VState Apply(uint _, VEvent e, VState s)
         {
-            public VState(uint Sequence)
-            {
-                this.SeqState = Sequence;
-            }
-            public uint SeqState { get; private set; }
+            if (!e.IsValid)
+                throw new Exception("Validity test failed");
+            return new VState(s.SeqState + 1);
         }
-        [DataContract]
-        public sealed class VEvent
+        public Task<VState> TryLoadAsync(Stream source, CancellationToken cancel)
         {
-            public VEvent(bool valid=true)
-            {
-                IsValid = valid;
-            }
-            [DataMember(Name = "TEvent", IsRequired = true, EmitDefaultValue = false)]
-            public bool IsValid { get; private set; }
-        }
-        public class Projection : IProjection<VEvent, VState>
-        {
-            public Type State => typeof(VState);
-            public bool NeedsMemoryMappedFolder => false;
-
-            public VState Apply(uint _, VEvent e, VState s)
-            {
-                if (!e.IsValid)
-                    throw new Exception("Validity test failed");
-                return new VState(s.SeqState + 1);
-            }
-            public Task<VState> TryLoadAsync(Stream source, CancellationToken cancel)
-            {
-                // Load is not supported.
-                return Task.FromResult(new VState(0));
-            }
-
-            public Task<bool> TrySaveAsync(Stream destination, VState state, CancellationToken cancel)
-            {
-                // Save is not supported.
-                return Task.FromResult(true);
-            }
-
-            public VState Initial(StateCreationContext stateCreationContext) => new VState(0);
-
-            public Task<RestoredState<VState>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
-            {
-                return Task.FromResult<RestoredState<VState>>(null);
-            }
-
-            public Task CommitAsync(VState state, uint sequence, CancellationToken cancel = default)
-            {
-                return Task.CompletedTask;
-            }
-
-            public Task<VState> UpkeepAsync(StateUpkeepContext stateUpkeepContext, VState state, CancellationToken cancel = default)
-            {
-                return Task.FromResult(state);
-            }
-
-            public string FullName => "CheckValProj-01";
+            // Load is not supported.
+            return Task.FromResult(new VState(0));
         }
 
-        public sealed class TestLog : ILogAdapter
+        public Task<bool> TrySaveAsync(Stream destination, VState state, CancellationToken cancel)
         {
-            public void Debug(string message) => Write(ConsoleColor.Gray, message);
-            public void Info(string message) => Write(ConsoleColor.White, message);
-            public void Warning(string message, Exception ex = null) => Write(ConsoleColor.Yellow, message, ex);
-            public void Error(string message, Exception ex = null) => Write(ConsoleColor.Red, message, ex);
-            private void Write(ConsoleColor color, string message, Exception exception = null) { }
+            // Save is not supported.
+            return Task.FromResult(true);
         }
 
-        [Fact]
-        public async Task valid_events_append()
+        public VState Initial(StateCreationContext stateCreationContext) => new(0);
+
+        public Task<RestoredState<VState>> TryRestoreAsync(StateCreationContext stateCreationContext, CancellationToken cancel = default)
         {
-            var memory = new MemoryStorageDriver();
-            var ew = new EventStreamWrapper<VEvent, VState>(
-                memory,
-                new[] { new Projection() }, 
-                null, 
-                null,
-                new TestLog());
-            await ew.InitializeAsync();
-            await ew.AppendEventsAsync(new[] { 
-                new VEvent(true), 
-                new VEvent(true), 
+            return Task.FromResult<RestoredState<VState>>(null);
+        }
+
+        public Task CommitAsync(VState state, uint sequence, CancellationToken cancel = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<VState> UpkeepAsync(StateUpkeepContext stateUpkeepContext, VState state, CancellationToken cancel = default)
+        {
+            return Task.FromResult(state);
+        }
+
+        public string FullName => "CheckValProj-01";
+    }
+
+    public sealed class TestLog : ILogAdapter
+    {
+        public void Debug(string message) => Write(ConsoleColor.Gray, message);
+        public void Info(string message) => Write(ConsoleColor.White, message);
+        public void Warning(string message, Exception ex = null) => Write(ConsoleColor.Yellow, message, ex);
+        public void Error(string message, Exception ex = null) => Write(ConsoleColor.Red, message, ex);
+        private void Write(ConsoleColor color, string message, Exception exception = null) { }
+    }
+
+    [Fact]
+    public async Task valid_events_append()
+    {
+        var memory = new MemoryStorageDriver();
+        var ew = new EventStreamWrapper<VEvent, VState>(
+            memory,
+            [new Projection()], 
+            null, 
+            null,
+            new TestLog());
+        await ew.InitializeAsync();
+        await ew.AppendEventsAsync([
+            new VEvent(true), 
+            new VEvent(true), 
+            new VEvent(true),
+            new VEvent(true),
+            new VEvent(true)
+        ]);
+        Assert.Equal(5u, ew.Current.SeqState);            
+    }
+
+    [Fact]
+    public async Task invalid_events_append()
+    {
+        var memory = new MemoryStorageDriver();
+        var ew = new EventStreamWrapper<VEvent, VState>(
+            memory,
+            [new Projection()], 
+            null, 
+            null,
+            new TestLog());
+        await ew.InitializeAsync();
+        try
+        {
+            await ew.AppendEventsAsync([
                 new VEvent(true),
                 new VEvent(true),
                 new VEvent(true),
-            });
-            Assert.Equal(5u, ew.Current.SeqState);            
+                new VEvent(false)
+            ]);
         }
-
-        [Fact]
-        public async Task invalid_events_append()
+        catch (Exception ex)
         {
-            var memory = new MemoryStorageDriver();
-            var ew = new EventStreamWrapper<VEvent, VState>(
-                memory,
-                new[] { new Projection() }, 
-                null, 
-                null,
-                new TestLog());
-            await ew.InitializeAsync();
-            try
-            {
-                await ew.AppendEventsAsync(new[] {
-                    new VEvent(true),
-                    new VEvent(true),
-                    new VEvent(true),
-                    new VEvent(false)
-                });
-            }
-            catch (Exception ex)
-            {
-                // Checking if the state is untouched.
-                Assert.Equal(0u, ew.Current.SeqState);
-                // Checking the error type.
-                Assert.Equal("An error occured while trying to apply a projection.", ex.Data["TryApplyMessage"].ToString()); 
-                // If an exception was thrown, then it is ok and a corrupted event sequence does not pass.
-                return;
-            }
-            throw new Exception("Expecting an exception in EventStreamWrapper.CheckEvents.");
+            // Checking if the state is untouched.
+            Assert.Equal(0u, ew.Current.SeqState);
+            // Checking the error type.
+            Assert.Equal("An error occured while trying to apply a projection.", ex.Data["TryApplyMessage"].ToString()); 
+            // If an exception was thrown, then it is ok and a corrupted event sequence does not pass.
+            return;
         }
+        throw new Exception("Expecting an exception in EventStreamWrapper.CheckEvents.");
+    }
 
-        [Fact]
-        public async Task invalid_events_transaction()
+    [Fact]
+    public async Task invalid_events_transaction()
+    {
+        var memory = new MemoryStorageDriver();
+        var ew = new EventStreamWrapper<VEvent, VState>(
+            memory,
+            [new Projection()], 
+            null, 
+            null,
+            new TestLog());
+        await ew.InitializeAsync();
+        try
         {
-            var memory = new MemoryStorageDriver();
-            var ew = new EventStreamWrapper<VEvent, VState>(
-                memory,
-                new[] { new Projection() }, 
-                null, 
-                null,
-                new TestLog());
-            await ew.InitializeAsync();
-            try
-            {
-                var projection = ew.GetCloneProjection();
-                var cloneSequence = projection.Sequence;
-                var transaction = new Transaction<VEvent, VState>(projection);
-
-                Action<Transaction<VEvent, VState>> builder = transaction =>
-                {
-                    transaction.Add(new VEvent(true));
-                    transaction.Add(new VEvent(true));
-                    transaction.Add(new VEvent(true));
-                    transaction.Add(new VEvent(false));
-                };
-
-                builder(transaction);
-                await ew.TryCommitTransactionAsync(transaction, cloneSequence);
-            }
-            catch (Exception ex)
-            {
-                // Checking if the state is untouched.
-                Assert.Equal(0u, ew.Current.SeqState);
-                // Checking the error type.
-                Assert.Equal("Validity test failed", ex.Message);
-                // If an exception was thrown, then it is ok and a corrupted event sequence does not pass.
-                return;
-            }
-            throw new Exception("Expecting an exception in transaction.");
-        }
-
-        [Fact]
-        public async Task valid_events_transaction()
-        {
-            var memory = new MemoryStorageDriver();
-            var ew = new EventStreamWrapper<VEvent, VState>(
-                memory,
-                new[] { new Projection() }, 
-                null,
-                null,
-                new TestLog());
-            await ew.InitializeAsync();
-
             var projection = ew.GetCloneProjection();
             var cloneSequence = projection.Sequence;
             var transaction = new Transaction<VEvent, VState>(projection);
@@ -197,14 +150,52 @@ namespace Lokad.AzureEventStore.Test.wrapper
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
                 transaction.Add(new VEvent(true));
-                transaction.Add(new VEvent(true));
-                transaction.Add(new VEvent(true));
+                transaction.Add(new VEvent(false));
             };
 
             builder(transaction);
-
             await ew.TryCommitTransactionAsync(transaction, cloneSequence);
-            Assert.Equal(5u, ew.Current.SeqState);
         }
+        catch (Exception ex)
+        {
+            // Checking if the state is untouched.
+            Assert.Equal(0u, ew.Current.SeqState);
+            // Checking the error type.
+            Assert.Equal("Validity test failed", ex.Message);
+            // If an exception was thrown, then it is ok and a corrupted event sequence does not pass.
+            return;
+        }
+        throw new Exception("Expecting an exception in transaction.");
+    }
+
+    [Fact]
+    public async Task valid_events_transaction()
+    {
+        var memory = new MemoryStorageDriver();
+        var ew = new EventStreamWrapper<VEvent, VState>(
+            memory,
+            [new Projection()], 
+            null,
+            null,
+            new TestLog());
+        await ew.InitializeAsync();
+
+        var projection = ew.GetCloneProjection();
+        var cloneSequence = projection.Sequence;
+        var transaction = new Transaction<VEvent, VState>(projection);
+
+        Action<Transaction<VEvent, VState>> builder = transaction =>
+        {
+            transaction.Add(new VEvent(true));
+            transaction.Add(new VEvent(true));
+            transaction.Add(new VEvent(true));
+            transaction.Add(new VEvent(true));
+            transaction.Add(new VEvent(true));
+        };
+
+        builder(transaction);
+
+        await ew.TryCommitTransactionAsync(transaction, cloneSequence);
+        Assert.Equal(5u, ew.Current.SeqState);
     }
 }

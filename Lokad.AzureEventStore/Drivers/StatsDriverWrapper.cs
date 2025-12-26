@@ -4,80 +4,74 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Lokad.AzureEventStore.Drivers
+namespace Lokad.AzureEventStore.Drivers;
+
+internal sealed class StatsDriverWrapper(IStorageDriver inner) : IStorageDriver
 {
-    internal sealed class StatsDriverWrapper : IStorageDriver
+    public readonly IStorageDriver Inner = inner;
+
+    public async Task<long> GetPositionAsync(CancellationToken cancel = new())
     {
-        public readonly IStorageDriver Inner;
-
-        public StatsDriverWrapper(IStorageDriver inner)
+        var sw = Stopwatch.StartNew();
+        try
         {
-            Inner = inner;
+            return await Inner.GetPositionAsync(cancel);
         }
-
-        public async Task<long> GetPositionAsync(CancellationToken cancel = new CancellationToken())
+        finally
         {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                return await Inner.GetPositionAsync(cancel);
-            }
-            finally
-            {
-                Trace.WriteLine("GetPositionAsync " + sw.ElapsedMilliseconds);
-            }
+            Trace.WriteLine("GetPositionAsync " + sw.ElapsedMilliseconds);
         }
+    }
 
-        public async Task<DriverWriteResult> WriteAsync(long position, IEnumerable<RawEvent> events, CancellationToken cancel = new CancellationToken())
+    public async Task<DriverWriteResult> WriteAsync(long position, IEnumerable<RawEvent> events, CancellationToken cancel = new())
+    {
+        var sw = Stopwatch.StartNew();
+        try
         {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                return await Inner.WriteAsync(position, events, cancel);
-            }
-            finally
-            {
-                Trace.WriteLine("WriteAsync " + sw.ElapsedMilliseconds);
-            }
+            return await Inner.WriteAsync(position, events, cancel);
         }
-
-        public async Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = new CancellationToken())
+        finally
         {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                return await Inner.ReadAsync(position, backing, cancel);
-            }
-            finally
-            {
-                Trace.WriteLine("ReadAsync " + sw.ElapsedMilliseconds);
-            }
+            Trace.WriteLine("WriteAsync " + sw.ElapsedMilliseconds);
         }
+    }
 
-        public async Task<uint> GetLastKeyAsync(CancellationToken cancel = new CancellationToken())
+    public async Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = new())
+    {
+        var sw = Stopwatch.StartNew();
+        try
         {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                return await Inner.GetLastKeyAsync(cancel);
-            }
-            finally
-            {
-                Trace.WriteLine("GetLastKeyAsync " + sw.ElapsedMilliseconds);
-            }
+            return await Inner.ReadAsync(position, backing, cancel);
         }
-
-        public async Task<long> SeekAsync(uint key, long position = 0, CancellationToken cancel = new CancellationToken())
+        finally
         {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                return await Inner.SeekAsync(key, position, cancel);
-            }
-            finally
-            {
-                Trace.WriteLine("SeekAsync " + sw.ElapsedMilliseconds);
-            }
+            Trace.WriteLine("ReadAsync " + sw.ElapsedMilliseconds);
+        }
+    }
+
+    public async Task<uint> GetLastKeyAsync(CancellationToken cancel = new())
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            return await Inner.GetLastKeyAsync(cancel);
+        }
+        finally
+        {
+            Trace.WriteLine("GetLastKeyAsync " + sw.ElapsedMilliseconds);
+        }
+    }
+
+    public async Task<long> SeekAsync(uint key, long position = 0, CancellationToken cancel = new())
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            return await Inner.SeekAsync(key, position, cancel);
+        }
+        finally
+        {
+            Trace.WriteLine("SeekAsync " + sw.ElapsedMilliseconds);
         }
     }
 }
