@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path="README.md" />
+    <File Path="AGENTS.md" />
   </Folder>
   <Project Path="ExampleProject/ExampleProject.csproj" />
   <Project Path="Lokad.AzureEventStore.Cache/Lokad.AzureEventStore.Cache.csproj" />

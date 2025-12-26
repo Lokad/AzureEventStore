@@ -9,6 +9,9 @@
     <FileVersion>1.0.0.0</FileVersion>
     <PackageId>AzureEventStore.Core.Tests</PackageId>
     <PackageVersion>1.0.0.0</PackageVersion>
+    <!-- Set to false with -p:UseLocalProjects=false to use the currently 
+         published NuGet packages instead. -->
+    <UseLocalProjects>true</UseLocalProjects>
   </PropertyGroup>
   <ItemGroup>
 	<PackageReference Include="Azure.Storage.Blobs" Version="12.13.0" />
@@ -22,16 +25,14 @@
     </PackageReference>
   </ItemGroup>
   
-  <!-- When developing locally, comment out this block and uncomment the one below it. -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseLocalProjects)' != 'true'">
     <PackageReference Include="Lokad.AzureEventStore" Version="14.0.0" />
     <PackageReference Include="Lokad.AzureEventStore.Cache" Version="3.0.0" />
-  </ItemGroup>
+  </ItemGroup> 
 
-  <!--
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseLocalProjects)' == 'true'">
     <ProjectReference Include="..\Lokad.AzureEventStore.Cache\Lokad.AzureEventStore.Cache.csproj" />
     <ProjectReference Include="..\Lokad.AzureEventStore\Lokad.AzureEventStore.csproj" />
   </ItemGroup>
-  -->
+
 </Project>
