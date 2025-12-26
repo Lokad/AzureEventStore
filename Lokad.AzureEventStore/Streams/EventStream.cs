@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -110,7 +111,8 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
     private readonly Queue<RawEvent> _cache = new();
 
     /// <summary>
-    ///     The size of the buffers used by the event stream.
+    ///     The size of the buffers used by the event stream; 4MiB is the expected
+    ///     majority case, and individual events are limited to 512KiB each.
     /// </summary>
     private const int MaxBytes = 1024 * 1024 * 4;
 
@@ -138,8 +140,29 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
 
         var sw = Stopwatch.StartNew();
 
-        var rawEvents = events.Select((e, i) => new RawEvent(_lastSequence + (uint)(i + 1), _serializer.Serialize(e)))
-            .ToArray();
+        var pooledBuffer = ArrayPool<byte>.Shared.Rent(MaxBytes);
+        var buffer = pooledBuffer;
+        var position = 0;
+        var rawEvents = new RawEvent[events.Count];
+
+        for (var i = 0; i < events.Count; i++)
+        {
+            // Most of the time, we have few events and they are small enough, so the 
+            // pooledBuffer is large enough to hold them all. But for a case where writing
+            // multiple megabytes at the same time, use additional non-pooled arrays for
+            // storing the event data.
+            if (buffer.Length - position < RawEvent.MaxEventSize)
+            {
+                buffer = new byte[MaxBytes];
+                position = 0;
+            }
+
+            var data = _serializer.Write(events[i], buffer, position);
+            position += data.Length;
+
+            rawEvents[i] = new RawEvent(_lastSequence + (uint)(i + 1), data);
+        }
+
         try
         {
             var result = await Storage.WriteAsync(Position, rawEvents, cancel);
@@ -169,6 +192,10 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
         {
             _log?.Error($"When writing {rawEvents.Length} events after seq {_lastSequence}.", e);
             throw;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(pooledBuffer);
         }
     }
 

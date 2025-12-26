@@ -26,7 +26,9 @@ internal struct RawEvent
         if (contents.Length % 8 != 0)
             throw new ArgumentException("Content size " + contents.Length + " not a multiple of 8");
 
-        if (contents.Length >= 512 * 1024)
+        if (contents.Length >= MaxEventSize)
             throw new ArgumentException("Content size " + contents.Length + " exceeds 512KB.");
     }
+
+    public const int MaxEventSize = 512 * 1024;
 }

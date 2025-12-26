@@ -21,7 +21,7 @@ internal abstract class AbstractStreamStorageDriver(Stream stream) : IStorageDri
         CancellationToken cancel = new())
         => Task.FromResult(Write(position, events));
 
-    private DriverWriteResult Write(long position, IEnumerable<RawEvent> events)
+    public DriverWriteResult Write(long position, IEnumerable<RawEvent> events)
     {
         var written = false;
 
@@ -54,7 +54,7 @@ internal abstract class AbstractStreamStorageDriver(Stream stream) : IStorageDri
     public Task<DriverReadResult> ReadAsync(long position, Memory<byte> backing, CancellationToken cancel = default)
         => Task.FromResult(Read(position, backing));
 
-    private DriverReadResult Read(long position, Memory<byte> backing)
+    public DriverReadResult Read(long position, Memory<byte> backing)
     {
         var events = new List<RawEvent>();
 

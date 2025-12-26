@@ -119,11 +119,32 @@ public sealed class JsonEventSerializer<TEvent> where TEvent : class
     /// <summary> Serialize an event, adding type information to its field "Type". </summary>
     public byte[] Serialize(TEvent e)
     {
+        using var ms = new MemoryStream();
+        WriteToStream(e, ms);
+        return ms.ToArray();
+    }
+
+    /// <summary> Serialize an event into a buffer, returning the written segment. </summary>
+    public Memory<byte> Write(TEvent e, byte[] buffer, int position)
+    {
+        if (buffer == null) throw new ArgumentNullException(nameof(buffer));
+        if ((uint)position > buffer.Length) throw new ArgumentOutOfRangeException(nameof(position));
+
+        using var ms = new MemoryStream(buffer);
+        ms.Position = position;
+
+        var written = WriteToStream(e, ms);
+        return buffer.AsMemory(position, written);
+    }
+
+    private int WriteToStream(TEvent e, Stream stream)
+    {
         if (e == null) throw new ArgumentNullException(nameof(e));
 
         var json = JsonConvert.SerializeObject(e, _settings);
-        using var ms = new MemoryStream();
-        using (var writer = new StreamWriter(ms, _encoding, 4096, true))
+        var start = stream.Position;
+
+        using (var writer = new StreamWriter(stream, _encoding, 4096, true))
         {
             if (typeof (TEvent) != typeof (JObject))
             { 
@@ -142,13 +163,14 @@ public sealed class JsonEventSerializer<TEvent> where TEvent : class
             }
         }
 
-        var mod = ms.Length%8;
+        var written = stream.Position - start;
+        var mod = written % 8;
         if (mod != 0)
         {
             const byte pad = (byte) ' '; // Space character is one-byte ASCII
-            while (mod++ < 8) ms.WriteByte(pad);
+            while (mod++ < 8) stream.WriteByte(pad);
         }
 
-        return ms.ToArray();
+        return checked((int)(stream.Position - start));
     }
 }
