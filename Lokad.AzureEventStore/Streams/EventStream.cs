@@ -56,6 +56,7 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
         Storage = storage;
         _log = log;
         StateCache = stateCache;
+        _ = InitializeInitialRemoteSequenceAsync();
     }
 
     /// <summary> The position up to which *remote* reading has progressed so far. </summary>
@@ -79,6 +80,28 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
     /// <see cref="Sequence"/> if no cached elements.
     /// </summary>
     private uint _lastSequence;
+
+    /// <summary>
+    /// Initial remote sequence number fetched at stream creation time.
+    /// </summary>
+    private uint _initialRemoteSequence;
+
+    /// <summary>
+    /// The maximum of the initial remote sequence and the last known sequence.
+    /// </summary>
+    public uint RemoteSequence => Math.Max(_initialRemoteSequence, _lastSequence);
+
+    private async Task InitializeInitialRemoteSequenceAsync()
+    {
+        try
+        {
+            _initialRemoteSequence = await Storage.GetLastKeyAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // Ignore failures; RemoteSequence will fall back to _lastSequence.
+        }
+    }
 
     /// <summary>
     /// Events that have been received from the remote position, but not returned by 

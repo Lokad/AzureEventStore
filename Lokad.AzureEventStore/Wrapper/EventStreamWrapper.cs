@@ -127,6 +127,9 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
     // the case of deserialization errors.
     public uint Sequence => Stream.Sequence;
 
+    /// <summary> The current remote sequence number. </summary>
+    public uint RemoteSequence => Stream.RemoteSequence;
+
     /// <summary>
     ///    This task completed when <see cref="InitializeAsync(CancellationToken)"/> finished.
     /// </summary>
@@ -233,7 +236,7 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
             var seq = Stream.Sequence;
 
             if (_log != null && seq % 1000 == 0)
-                _log.Info($"[ES read] processing event at seq {seq:N0}.");
+                _log.Info($"[ES read] processing event at seq {seq:N0} /{RemoteSequence}.");
 
             if (caughtUpWithProjection || seq > _projection.Sequence)
             {
