@@ -81,7 +81,30 @@ public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>
         ILogAdapter log,
         CancellationToken cancel)
     =>
-        new(storage, projections, _ => projectionCache, projectionFolder, log, cancel);
+        new(storage, projections, _ => projectionCache, projectionFolder, log, [], cancel);
+
+    /// <summary> Initialize and start the service. </summary>
+    /// <remarks> 
+    /// This will start a background task that performs all processing
+    /// and regularly updates the contents.
+    /// </remarks>
+    /// <param name="storage"> Identifies where the event stream data is stored. </param>
+    /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
+    /// <param name="projectionCache"> Used to save projected state. </param>
+    /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
+    /// <param name="log"> Used for logging. </param>
+    /// <param name="cancel"> Stops the background tasks when called. </param>
+    /// <param name="serializers"> Used for event serialization. </param>
+    public static EventStreamService<TEvent, TState> StartNew(
+        StorageConfiguration storage,
+        IEnumerable<IProjection<TEvent>> projections,
+        IProjectionCacheProvider projectionCache,
+        IProjectionFolderProvider projectionFolder,
+        ILogAdapter log,
+        CancellationToken cancel,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers)
+    =>
+        new(storage, projections, _ => projectionCache, projectionFolder, log, serializers, cancel);
 
     /// <summary> Initialize and start the service. </summary>
     /// <remarks> 
@@ -102,7 +125,30 @@ public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>
         ILogAdapter log,
         CancellationToken cancel)
     =>
-        new(storage, projections, projectionCacheBuilder, projectionFolder, log, cancel);
+        new(storage, projections, projectionCacheBuilder, projectionFolder, log, [], cancel);
+
+    /// <summary> Initialize and start the service. </summary>
+    /// <remarks> 
+    /// This will start a background task that performs all processing
+    /// and regularly updates the contents.
+    /// </remarks>
+    /// <param name="storage"> Identifies where the event stream data is stored. </param>
+    /// <param name="projections"> All available <see cref="IProjection{T}"/> instances. </param>
+    /// <param name="projectionCacheBuilder"> Callback function which builds the cache, called after the the download of the json settings file from Azure. </param>
+    /// <param name="projectionFolder"> Used to write projected state in memory-mapped entries. </param>
+    /// <param name="log"> Used for logging. </param>
+    /// <param name="serializers"> Used for event serialization. If left empty, default JSON serialization is used. </param>
+    /// <param name="cancel"> Stops the background tasks when called. </param>
+    public static EventStreamService<TEvent, TState> StartNew(
+        StorageConfiguration storage,
+        IEnumerable<IProjection<TEvent>> projections,
+        Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
+        IProjectionFolderProvider projectionFolder,
+        ILogAdapter log,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers,
+        CancellationToken cancel)
+    =>
+        new(storage, projections, projectionCacheBuilder, projectionFolder, log, serializers, cancel);
 
     /// <remarks>
     ///     This constructor is private so that it is obvious (via <c>StartNew</c>)
@@ -114,11 +160,14 @@ public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>
         Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
         IProjectionFolderProvider projectionFolderProvider,
         ILogAdapter log,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers,
         CancellationToken cancel) : base(TimeSpan.FromSeconds(30), cancel)
     {
+        if (serializers == null) throw new ArgumentNullException(nameof(serializers));
+
         _log = log;
         _cancel = cancel;
-        Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolderProvider, log);
+        Wrapper = new EventStreamWrapper<TEvent, TState>(storage, projections, projectionCacheBuilder, projectionFolderProvider, log, serializers);
         Quarantine = Wrapper.Quarantine;
 
         Ready = Task.Run(Initialize, cancel);

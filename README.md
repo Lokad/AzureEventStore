@@ -97,21 +97,57 @@ and only references the word (`Key`).
 
 ```csharp
 [DataContract]
-public sealed class ValueUpdated : IEvent
-{
-    [DataMember]
-    public string Key { get; private set; }
-
-    [DataMember]
-    public int Value { get; private set; }
-}
+public sealed record ValueUpdated(
+    [property: DataMember] string Key,
+    [property: DataMember] int Value) : IEvent;
 
 [DataContract]
-public sealed class ValueDeleted : IEvent
+public sealed record ValueDeleted(
+    [property: DataMember] string Key) : IEvent;
+```
+
+Alternatively, you can provide a custom serializer for your events, by implementing
+the interface `IEventSerializer<IEvent>`. For example:
+
+```csharp
+public sealed class CustomEventSerializer : IEventSerializer<IEvent>
 {
-    [DataMember]
-    public string Key { get; private set; }
-}
+    // The tag is a single byte that identifies the serializer used to write
+    // an individual event. It allows multiple serializers to coexist in the 
+    // same stream, and allows the library to automatically detect the serializer
+    // used to read an event.
+    public byte Tag => (byte)'O';
+    
+    // Write the event to the given buffer, with its first byte at the given
+    // position, and return the written bytes. The returned memory may never 
+    // exceed 512 KiB. When this method is called, the remaining space in 
+    // the buffer will always be at least 512KiB. 
+    public Memory<byte> Serialize(IOneEvent e, byte[] buffer, int position)
+    {
+        // The first byte must always be the tag?
+        buffer[position] = Tag;
+        
+        int length = // Write e to buffer.AsSpan(position + 1)
+
+        return buffer.AsMemory(position, 1 + length);
+    }
+    
+    // Deserializes the event from the given buffer. The buffer begins with the same
+    // data as was returned by Serialize(), but may contain additional data after it
+    // which should be ignored.
+    public IEvent Deserialize(ReadOnlyMemory<byte> data)
+    {
+        var span = data.Span;
+        
+        // The Tag should always appear as the first byte of the event.
+        if (span[0] != Tag)
+            throw new InvalidOperationException($"Unexpected tag 0x{span[0]:X2}.");
+
+        IEvent readEvent = // Read an event from span[1..]
+        
+        return readEvent;
+    }
+
 ```
 
 ### State

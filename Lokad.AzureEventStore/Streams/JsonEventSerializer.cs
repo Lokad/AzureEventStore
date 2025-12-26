@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using Lokad.AzureEventStore;
 using Lokad.AzureEventStore.Exceptions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -11,7 +12,7 @@ using Newtonsoft.Json.Linq;
 namespace Lokad.AzureEventStore.Streams;
 
 /// <summary> Serializes events as JSON, carrying type information alongside. </summary>
-public sealed class JsonEventSerializer<TEvent> where TEvent : class
+public sealed class JsonEventSerializer<TEvent> : IEventSerializer<TEvent> where TEvent : class
 {
     /// <summary> All types in <see cref="_types"/> keyed by name. </summary>
     private readonly IReadOnlyDictionary<string, Type> _typeByName;
@@ -29,6 +30,12 @@ public sealed class JsonEventSerializer<TEvent> where TEvent : class
     /// <summary> BOM-less UTF8 encoder. </summary>
     private readonly Encoding _encoding = new UTF8Encoding(false);
 
+    /// <summary>
+    /// This byte appears in first position in the serialized event, to indicate
+    /// this serializer should be used to deserialize it.
+    /// </summary>
+    public byte Tag => (byte)'{';
+    
     /// <summary> Construct a new serializer for events of type <see cref="TEvent"/> </summary>
     public JsonEventSerializer()
     {
@@ -125,7 +132,7 @@ public sealed class JsonEventSerializer<TEvent> where TEvent : class
     }
 
     /// <summary> Serialize an event into a buffer, returning the written segment. </summary>
-    public Memory<byte> Write(TEvent e, byte[] buffer, int position)
+    public Memory<byte> Serialize(TEvent e, byte[] buffer, int position)
     {
         if (buffer == null) throw new ArgumentNullException(nameof(buffer));
         if ((uint)position > buffer.Length) throw new ArgumentOutOfRangeException(nameof(position));

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs;
+using Lokad.AzureEventStore;
 using Lokad.AzureEventStore.Drivers;
 using Lokad.AzureEventStore.Projections;
 using Lokad.AzureEventStore.Quarantine;
@@ -38,8 +39,9 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
         IEnumerable<IProjection<TEvent>> projections,
         Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
         IProjectionFolderProvider projectionFolderProvider,
-        ILogAdapter log = null)
-        : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, projectionFolderProvider, log, blobContainerClient)
+        ILogAdapter log = null,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers = null)
+        : this(storage.Connect(out var blobContainerClient), projections, projectionCacheBuilder, projectionFolderProvider, log, blobContainerClient, serializers)
     { }
 
     internal EventStreamWrapper(
@@ -48,10 +50,11 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
         Func<EventStream<TEvent>, IProjectionCacheProvider> projectionCacheBuilder,
         IProjectionFolderProvider projectionFolderProvider,
         ILogAdapter log = null,
-        BlobContainerClient blobContainerClient = null)
+        BlobContainerClient blobContainerClient = null,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers = null)
     {
         _log = log;
-        Stream = new EventStream<TEvent>(storage, log, blobContainerClient);
+        Stream = new EventStream<TEvent>(storage, log, blobContainerClient, serializers);
         _projection = new ReifiedProjectionGroup<TEvent, TState>(
             projections,
             projectionCacheBuilder?.Invoke(Stream), 

@@ -41,7 +41,11 @@ internal static class EventFormat
 
         var payload = e.Contents.Span;
         payload.CopyTo(span);
-        span = span[e.Contents.Length..];
+        
+        // The number of bytes skipped is the size of the event rounded up
+        // to the nearest multiple of 8.
+        var skipped = (payload.Length + 7) / 8 * 8;
+        span = span[skipped..];
 
         uint checksum = Checksum(seq, payload);
         MemoryMarshal.Write(span, in checksum);

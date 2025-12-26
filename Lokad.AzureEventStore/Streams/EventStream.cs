@@ -38,7 +38,7 @@ namespace Lokad.AzureEventStore.Streams;
 public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : class
 {
     /// <summary> Used for object-to-byte[] conversions. </summary>
-    private readonly JsonEventSerializer<TEvent> _serializer = new();
+    private readonly IReadOnlyList<IEventSerializer<TEvent>> _serializers;
 
     /// <summary> Where events are stored. </summary>
     internal readonly IStorageDriver Storage;
@@ -47,17 +47,38 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
     private readonly ILogAdapter _log;
 
     /// <summary> Open an event stream, connecting to the specified store. </summary>
-    public EventStream(StorageConfiguration storage, ILogAdapter log = null) : this(storage.Connect(out var stateCache), log, stateCache)
+    public EventStream(
+        StorageConfiguration storage,
+        ILogAdapter log = null,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers = null)
+        : this(storage.Connect(out var stateCache), log, stateCache, serializers)
     {
     }
 
     /// <summary> Open an event stream on the provided store. </summary>
-    internal EventStream(IStorageDriver storage, ILogAdapter log = null, BlobContainerClient stateCache = null)
+    internal EventStream(
+        IStorageDriver storage,
+        ILogAdapter log = null,
+        BlobContainerClient stateCache = null,
+        IReadOnlyList<IEventSerializer<TEvent>> serializers = null)
     {
         Storage = storage;
         _log = log;
         StateCache = stateCache;
+        _serializers = EnsureJsonSerializer(serializers);
         _ = InitializeInitialRemoteSequenceAsync();
+    }
+
+    /// <summary> Ensures that there's always a JSON serializer registered. </summary>
+    private static IReadOnlyList<IEventSerializer<TEvent>> EnsureJsonSerializer(
+        IReadOnlyList<IEventSerializer<TEvent>> serializers)
+    {
+        var list = serializers == null ? new List<IEventSerializer<TEvent>>() : new List<IEventSerializer<TEvent>>(serializers);
+
+        if (list.Count == 0 || list.All(s => s.Tag != (byte)'{'))
+            list.Add(new JsonEventSerializer<TEvent>());
+
+        return list;
     }
 
     /// <summary> The position up to which *remote* reading has progressed so far. </summary>
@@ -157,7 +178,7 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
                 position = 0;
             }
 
-            var data = _serializer.Write(events[i], buffer, position);
+            var data = _serializers[0].Serialize(events[i], buffer, position);
             position += data.Length;
 
             rawEvents[i] = new RawEvent(_lastSequence + (uint)(i + 1), data);
@@ -209,7 +230,16 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
         var next = _cache.Dequeue();
         Sequence = next.Sequence;
             
-        return _serializer.Deserialize(next.Contents);
+        if (next.Contents.Length == 0)
+            throw new InvalidOperationException("Event contents are empty.");
+
+        var tag = next.Contents.Span[0];
+        var serializer = _serializers.FirstOrDefault(s => s.Tag == tag);
+
+        if (serializer == null)
+            throw new InvalidOperationException($"No serializer registered for tag 0x{tag:X2}.");
+
+        return serializer.Deserialize(next.Contents);
     }
 
     public async Task<Func<bool>> BackgroundFetchAsync(CancellationToken cancel = default)
