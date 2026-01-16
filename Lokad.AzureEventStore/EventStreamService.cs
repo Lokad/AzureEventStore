@@ -62,6 +62,8 @@ public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>
 
     private readonly SemaphoreSlim _transactionSemaphore = new(1);
 
+    public uint Sequence => Wrapper.Sequence;
+
     /// <summary> Initialize and start the service. </summary>
     /// <remarks> 
     /// This will start a background task that performs all processing
