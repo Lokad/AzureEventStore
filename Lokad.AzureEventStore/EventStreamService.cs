@@ -62,8 +62,32 @@ public sealed class EventStreamService<TEvent,TState> : SleepyProcess<Func<Task>
 
     private readonly SemaphoreSlim _transactionSemaphore = new(1);
 
+    /// <summary> The sequence number of the <see cref="LocalState"/>. </summary>
+    /// <remarks>
+    /// <para>
+    ///     Keep in mind that there's no way to get both the state and the sequence
+    ///     at the same time in a thread-safe manner, so expect the sequence number
+    ///     to sometimes be off by a few events.
+    /// </para>
+    /// <para>
+    ///     When accessed after the state, it means the state is no later than this
+    ///     sequence value. 
+    /// </para>
+    /// <para>
+    ///     When accessed before the state, it means the state is no earlier than this
+    ///     sequence value. 
+    /// </para>
+    /// </remarks>
     public uint Sequence => Wrapper.Sequence;
 
+    /// <summary>
+    ///     During the initial stream loading, contains the last sequence known to be
+    ///     in the remote stream, so that it can be used in combination with
+    ///     <see cref="Sequence"/> to track progress. Once <see cref="IsReady"/>
+    ///     becomes true, do not rely on this value. 
+    /// </summary>
+    public uint RemoteSequence => Wrapper.Stream.RemoteSequence;
+    
     /// <summary> Initialize and start the service. </summary>
     /// <remarks> 
     /// This will start a background task that performs all processing

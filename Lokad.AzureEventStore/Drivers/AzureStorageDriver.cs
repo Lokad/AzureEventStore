@@ -402,6 +402,10 @@ internal sealed class AzureStorageDriver : IStorageDriver
             return new DriverReadResult(_lastKnownPosition, new RawEvent[0]);
         }
 
+        if (blobPosition > properties.ContentLength)
+            throw new InvalidOperationException(
+                $"Read cursor at position {blobPosition} in blob {lastBlob.AppendBlob.Name} of size {properties.ContentLength}");
+        
         // We suppose we are close to the end of the stream, so there will not be much
         // new data available.
         var downloaded = await blobClient.DownloadContentAsync(
@@ -476,6 +480,9 @@ internal sealed class AzureStorageDriver : IStorageDriver
         }
         catch (InvalidDataException e)
         {
+            #if NET10_0_OR_GREATER
+            act?.AddException(e);
+            #endif
             throw new InvalidDataException($"{e.Message} at {position + parsedBytes}");
         }
 
