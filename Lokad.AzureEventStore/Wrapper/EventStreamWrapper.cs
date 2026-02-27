@@ -239,7 +239,13 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
             var seq = Stream.Sequence;
 
             if (_log != null && seq % 1000 == 0)
-                _log.Info($"[ES read] processing event at seq {seq:N0} /{RemoteSequence}.");
+            {
+                var remoteSequence = RemoteSequence;
+                var progressPercent = remoteSequence > 0
+                    ? Math.Clamp((int)(seq * 100.0 / remoteSequence), 0, 100)
+                    : 0;
+                _log.Info($"[ES read] processing event at seq {seq:N0} / {remoteSequence:N0} [{progressPercent:00}%]");
+            }
 
             if (caughtUpWithProjection || seq > _projection.Sequence)
             {
