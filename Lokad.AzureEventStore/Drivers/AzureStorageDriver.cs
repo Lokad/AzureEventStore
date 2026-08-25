@@ -409,23 +409,26 @@ internal sealed class AzureStorageDriver : IStorageDriver
         if (blobPosition > properties.ContentLength)
             throw new InvalidOperationException(
                 $"Read cursor at position {blobPosition} in blob {lastBlob.AppendBlob.Name} of size {properties.ContentLength}");
-        
-        // We suppose we are close to the end of the stream, so there will not be much
-        // new data available.
+
+        // The downloaded bytes may be incomplete. Advance the cached position only
+        // past events accepted by ParseData, the incomplete tail is reread later.
         var downloaded = await blobClient.DownloadContentAsync(
             range: new HttpRange(blobPosition, backing.Length), cancellationToken: cancel);
         var content = downloaded.Value.Content.ToMemory();
 
         content.Span.CopyTo(backing.Span);
-
         var contentLength = content.Length;
-        // Update the size of the blob.
-        lastBlob = lastBlob.RefreshBlob(contentLength);
-        _blobs[^1] = lastBlob;
-        _lastKnownPosition += contentLength;
 
         backing = backing[..contentLength];
-        return ParseData(backing, _lastKnownPosition - contentLength, act);   
+        var result = ParseData(backing, _lastKnownPosition, act);
+        var parsedLength = result.NextPosition - _lastKnownPosition;
+
+        // Update the size of the blob.
+        lastBlob = lastBlob.RefreshBlob(parsedLength);
+        _blobs[^1] = lastBlob;
+        _lastKnownPosition = result.NextPosition;
+
+        return result;
     }
 
     /// <summary>
@@ -473,7 +476,6 @@ internal sealed class AzureStorageDriver : IStorageDriver
     {
         var events = new List<RawEvent>();
         var parsedBytes = 0;
-
         try
         {
             while (EventFormat.TryParse(backing[parsedBytes..], out var parsed) is { } re)

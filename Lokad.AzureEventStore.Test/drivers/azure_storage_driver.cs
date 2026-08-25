@@ -51,6 +51,37 @@ public class azure_storage_driver : storage_driver
         }
     }
 
+    [Fact]
+    public async Task incomplete_event_tail_is_read_after_append()
+    {
+        var blob = _container.ReferenceEventBlob(0);
+        await blob.CreateAsync();
+
+        var driver = new AzureStorageDriver(_container);
+        var empty = await driver.ReadAsync(0, new byte[1024]);
+        Assert.Empty(empty.Events);
+        Assert.Equal(0, empty.NextPosition);
+
+        var expected = new RawEvent(42, new byte[16]);
+        var bytes = new byte[EventFormat.MaxEventFootprint];
+        var length = EventFormat.Write(bytes, expected);
+        var prefixLength = length - 1;
+
+        await blob.AppendBlockAsync(new MemoryStream(bytes, 0, prefixLength));
+
+        var incomplete = await driver.ReadAsync(0, new byte[1024]);
+        Assert.Empty(incomplete.Events);
+        Assert.Equal(0, incomplete.NextPosition);
+
+        await blob.AppendBlockAsync(new MemoryStream(bytes, prefixLength, 1));
+
+        var complete = await driver.ReadAsync(0, new byte[1024]);
+        var actual = Assert.Single(complete.Events);
+        Assert.Equal(expected.Sequence, actual.Sequence);
+        Assert.Equal(expected.Contents.ToArray(), actual.Contents.ToArray());
+        Assert.Equal(length, complete.NextPosition);
+    }
+
     [Fact(Skip = "Long")]
     public async Task compaction()
     {
