@@ -66,7 +66,6 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
         _log = log;
         StateCache = stateCache;
         _serializers = EnsureJsonSerializer(serializers);
-        _ = InitializeInitialRemoteSequenceAsync();
     }
 
     /// <summary> Ensures that there's always a JSON serializer registered. </summary>
@@ -104,7 +103,7 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
     private uint _lastSequence;
 
     /// <summary>
-    /// Initial remote sequence number fetched at stream creation time.
+    /// Initial remote sequence number fetched during stream initialization.
     /// </summary>
     private uint _initialRemoteSequence;
 
@@ -113,11 +112,11 @@ public sealed class EventStream<TEvent> : IEventStream<TEvent> where TEvent : cl
     /// </summary>
     public uint RemoteSequence => Math.Max(_initialRemoteSequence, _lastSequence);
 
-    private async Task InitializeInitialRemoteSequenceAsync()
+    internal async Task InitializeInitialRemoteSequenceAsync(CancellationToken cancel = default)
     {
         try
         {
-            _initialRemoteSequence = await Storage.GetLastKeyAsync().ConfigureAwait(false);
+            _initialRemoteSequence = await Storage.GetLastKeyAsync(cancel).ConfigureAwait(false);
         }
         catch
         {

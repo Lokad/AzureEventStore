@@ -148,6 +148,8 @@ internal sealed class EventStreamWrapper<TEvent, TState> where TState : class wh
 
         var log = _log?.Timestamped();
 
+        await Stream.InitializeInitialRemoteSequenceAsync(cancel).ConfigureAwait(false);
+
         using (Logging.Stream.StartActivity("EventStreamWrapper.Initialize.Load"))
         {
             await Catchup(_projection, Stream, cancel, log);

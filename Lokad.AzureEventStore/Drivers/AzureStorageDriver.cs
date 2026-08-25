@@ -66,6 +66,10 @@ internal sealed class AzureStorageDriver : IStorageDriver
     /// Refreshes the local cache of positions, keys and blobs from Azure.         
     /// Returns the write position.
     /// </summary>        
+    /// <remarks>
+    /// This method is not safe for concurrent execution. The driver must not be used by another
+    /// operation until the returned task has completed.
+    /// </remarks>
     internal async Task<long> RefreshCache(CancellationToken cancel)
     {
         // Download the complete list of blobs from the server. It's easier to 
