@@ -12,7 +12,7 @@ public sealed class file_storage_driver : storage_driver
     internal override IStorageDriver GetFreshStorageDriver()
     {
         _path = Path.Combine(TestPaths.Root, "FileStorageTests", Guid.NewGuid().ToString());
-        return new FileStorageDriver(_path);
+        return new FileStorageDriver(_path, false);
     }
 
     protected override void DeleteStorageDriver()

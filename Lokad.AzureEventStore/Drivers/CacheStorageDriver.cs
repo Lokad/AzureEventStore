@@ -19,7 +19,7 @@ internal sealed class CacheStorageDriver(IStorageDriver source, string path) : I
     private readonly IStorageDriver _source = source;
 
     /// <summary> The local file used as cache. </summary>
-    private readonly FileStorageDriver _cache = new(path);
+    private readonly FileStorageDriver _cache = new(path, false);
 
     /// <summary> The highest key in the cache. </summary>
     private uint _maxCacheKey;

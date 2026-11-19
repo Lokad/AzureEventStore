@@ -92,7 +92,7 @@ public sealed class StorageConfiguration
             driver = new AzureStorageDriver(container);
         }
         else
-            driver = new FileStorageDriver(FilePath);
+            driver = new FileStorageDriver(FilePath, ReadOnly);
 
         if (Trace)
             driver = new StatsDriverWrapper(driver);
