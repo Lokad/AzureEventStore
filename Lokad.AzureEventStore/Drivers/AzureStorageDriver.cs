@@ -255,6 +255,16 @@ internal sealed class AzureStorageDriver : IStorageDriver
             // below.
             await CreateLastBlob(cancel);
 
+            // Another writer may have filled the previous blob after our last
+            // known position. Appending at offset zero in the new blob would
+            // otherwise accept a write based on that stale global position.
+            if (position != _lastKnownPosition)
+            {
+                act?.SetTag(Logging.PositionStream, _lastKnownPosition)
+                    .SetStatus(ActivityStatusCode.Error, "Conflict");
+                return new DriverWriteResult(_lastKnownPosition, false);
+            }
+
             try
             {
                 var lastBlob = _blobs[^1].GetAppendBlobClient();
