@@ -1,10 +1,51 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Lokad.AzureEventStore.Drivers;
 
 namespace Lokad.AzureEventStore.Streams;
+
+/// <summary>
+/// Raw event data, as read and written through a <see cref="IStorageDriver"/>, keeping
+/// a source pooled buffer.
+/// </summary>
+/// <param name="Sequence">
+/// The sequence number of the event: these should be strictly increasing, 
+/// but not necessarily contiguous (e.g. in case of stream rewrites, events may be
+/// merged).
+/// </param>
+/// <param name="Contents">
+/// The contents of the event. The size should be a multiple of 8, and no greater
+/// than 2^16 * 8 = 512KB.
+/// </param>
+internal record struct PooledRawEvent(uint Sequence, ReadOnlyMemory<byte> Contents, byte[] PooledArray)
+{
+    public static PooledRawEvent Make(uint sequence, ReadOnlyMemory<byte> contents, byte[] pooledArray)
+    {
+        if (contents.Length % 8 != 0)
+            throw new ArgumentException("Content size " + contents.Length + " not a multiple of 8");
+
+        if (contents.Length >= MaxEventSize)
+            throw new ArgumentException("Content size " + contents.Length + " exceeds 512KB.");
+
+        return new(sequence, contents, pooledArray);
+    }
+
+    /// <summary> Returns the buffer to the pool. </summary>
+    public void ReturnShared() =>
+        ArrayPool<byte>.Shared.Return(PooledArray);
+
+    /// <summary> Rent a buffer of max event size </summary>
+    public static byte[] Rent() =>
+        ArrayPool<byte>.Shared.Rent(MaxEventSize);
+
+    public RawEvent AsRawEvent => new(Sequence, Contents);
+
+    public const int MaxEventSize = 512 * 1024;
+}
 
 /// <summary> A write-only event stream used for data migrations. </summary>
 public sealed class MigrationStream<TEvent> where TEvent : class
@@ -14,26 +55,36 @@ public sealed class MigrationStream<TEvent> where TEvent : class
     private uint? _sequence;
     private long? _position;
 
-    private readonly JsonEventSerializer<TEvent> _serializer = new(); 
+    private readonly IEventSerializer<TEvent> _serializer; 
 
     /// <summary> Construct a migration stream from a configuration. </summary>
-    public MigrationStream(StorageConfiguration config) : this(config.Connect())
+    /// <remarks> Use Newtonsoft.Json event serializer! </remarks>
+    [Obsolete]
+    public MigrationStream(StorageConfiguration config)
+        : this(config, new JsonEventSerializer<TEvent>())
+    {}
+    
+    /// <summary> Construct a migration stream from a configuration. </summary>
+    public MigrationStream(StorageConfiguration config, IEventSerializer<TEvent> serializer)
+        : this(config.Connect(), serializer)
     {
         if (config.ReadOnly)
             throw new ArgumentException("Expected writable storage.");
     }
 
+    [Obsolete]
     internal MigrationStream(IStorageDriver driver)
+        : this(driver, new JsonEventSerializer<TEvent>()) {}
+    
+    internal MigrationStream(IStorageDriver driver, IEventSerializer<TEvent> serializer)
     {
         _driver = driver;
+        _serializer = serializer;
     } 
 
     /// <summary> Return the last written sequence in the output stream. </summary>
-    public async Task<uint> LastWrittenAsync(CancellationToken cancel = default)
-    {            
-        return (uint)(_sequence ?? 
-                      (_sequence = await _driver.GetLastKeyAsync(cancel).ConfigureAwait(false)));
-    }
+    public async Task<uint> LastWrittenAsync(CancellationToken cancel = default) =>
+        _sequence ??= await _driver.GetLastKeyAsync(cancel).ConfigureAwait(false);
 
     /// <summary> Appends events to the stream. </summary>
     /// <remarks> 
@@ -47,8 +98,7 @@ public sealed class MigrationStream<TEvent> where TEvent : class
     {
         var sequence = _sequence ?? await LastWrittenAsync(cancel).ConfigureAwait(false);
 
-        var position = (long)(_position ?? 
-                              (_position = await _driver.GetPositionAsync(cancel).ConfigureAwait(false)));
+        var position = _position ??= await _driver.GetPositionAsync(cancel).ConfigureAwait(false);
 
         // If an exception is thrown before we return properly, it might leave the
         // cached values (_sequence and _position) in an invalid state, so we null 
@@ -57,23 +107,24 @@ public sealed class MigrationStream<TEvent> where TEvent : class
         _sequence = null;
         _position = null;
 
-        var list = new List<RawEvent>();
-        var otherList = new List<RawEvent>();
+        var list = new List<PooledRawEvent>();
+        var otherList = new List<PooledRawEvent>();
 
         // Assigned the current writing task every time 'write' is called.
         Task writing = Task.FromResult(0);
 
         // Writes the events in the list to the driver
-        Func<IReadOnlyList<RawEvent>, Task> write = async written =>
+        Func<IReadOnlyList<PooledRawEvent>, Task> write = async written =>
         {
             if (written.Count == 0) return;
 
-            var result = await _driver.WriteAsync(position, written, cancel)
+            var result = await _driver
+                .WriteAsync(position, written.Select(a => a.AsRawEvent), cancel)
                 .ConfigureAwait(false);
 
             if (!result.Success)
                 throw new Exception(
-                    $"Error writing events {written[0].Sequence} to {written[written.Count - 1].Sequence}");
+                    $"Error writing events {written[0].Sequence} to {written[^1].Sequence}");
 
             position = result.NextPosition;
         };
@@ -89,7 +140,10 @@ public sealed class MigrationStream<TEvent> where TEvent : class
                 throw new ArgumentException($"Out-of-order sequence #{seq}", nameof(events));
 
             sequence = seq;
-            list.Add(new RawEvent(seq, _serializer.Serialize(e)));
+            var pooledBuffer = PooledRawEvent.Rent();
+            var pooledEvent =
+                new PooledRawEvent(seq, _serializer.Serialize(e, pooledBuffer, 0), pooledBuffer);
+            list.Add(pooledEvent);
 
             // Avoid runaway scheduling (having to write increasingly 
             // large sets of events because write is slower than enumeration
@@ -113,12 +167,17 @@ public sealed class MigrationStream<TEvent> where TEvent : class
                 list = otherList;
                 otherList = temp;
 
+                foreach (var writtenPooledEvent in list)
+                    writtenPooledEvent.ReturnShared();
                 list.Clear();
             }
         }
 
         await writing.ConfigureAwait(false);
         await write(list).ConfigureAwait(false);
+        
+        foreach (var writtenPooledEvent in list)
+            writtenPooledEvent.ReturnShared();
 
         // Cache the values we reached.
         _sequence = sequence;
@@ -173,7 +232,7 @@ public sealed class MigrationStream<TEvent> where TEvent : class
         {
             cancel.ThrowIfCancellationRequested();
 
-            var fetch = source.BackgroundFetchAsync();
+            var fetch = source.BackgroundFetchAsync(cancel);
 
             while (source.TryGetNext() is { } next)
             {
